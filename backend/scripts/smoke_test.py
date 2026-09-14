@@ -150,6 +150,21 @@ check("public hall board", code == 200 and "now_serving" in board)
 code, div = call("GET", "/api/staff/diversion", token=jwt)
 check("smart diversion advice", code == 200 and "alternatives" in div)
 
+# No-show then requeue: farmer returns to the live queue and NO_SHOW rows leave it.
+code, nsq = call("GET", "/api/staff/queue", token=jwt)
+requeue_target = next((q for q in nsq.get("queue", []) if q.get("status") == "SLOT_BOOKED"), None)
+if requeue_target:
+    code, nsm = call("POST", "/api/staff/no-show", {"token": requeue_target["token"], "requeue": False}, token=jwt)
+    code, qn = call("GET", "/api/staff/queue", token=jwt)
+    still_there = any(q["token"] == requeue_target["token"] for q in qn.get("queue", []))
+    check("no-show removed from live queue", code == 200 and not still_there)
+    check("no-show listed for requeue", any(n["token"] == requeue_target["token"] for n in qn.get("no_shows_today", [])))
+    code, rq = call("POST", "/api/staff/requeue", {"token": requeue_target["token"]}, token=jwt)
+    check("requeue returns farmer to queue", code == 200 and rq.get("position", 0) >= 1)
+    code, qf2 = call("GET", "/api/staff/queue", token=jwt)
+    check("requeued farmer back in live queue", any(q["token"] == requeue_target["token"] and q["status"] == "ARRIVED"
+          for q in qf2.get("queue", [])))
+
 code, wi = call("POST", "/api/staff/walkin",
                 {"farmer_name": "Walk In Farmer", "phone": "9000000001",
                  "crop": "Maize", "quantity_kg": 350, "priority_flag": "ELDERLY"}, token=jwt)

@@ -1029,11 +1029,24 @@ function StaffView({ lang, onLogout }) {
                   {q.status === 'QUALITY_CHECK' && <button className="mini" onClick={() => act('/staff/complete-procurement', { token: q.token, quality_grade: 'A' })}>{t.approve}</button>}
                   {q.status === 'PAYMENT' && q.payment_status !== 'COMPLETED' && <button className="mini" onClick={() => act('/staff/complete-payment', { token: q.token })}>{t.pay}</button>}
                   {['SLOT_BOOKED', 'ARRIVED'].includes(q.status) && <button className="mini danger" onClick={() => act('/staff/no-show', { token: q.token, requeue: false })}>{t.checkout}</button>}
+                  {q.status === 'NO_SHOW' && <button className="mini" onClick={() => act('/staff/requeue', { token: q.token })}>↩ Requeue</button>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {(queue?.no_shows_today || []).length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <b>🚶‍♂️ Today's no-shows ({queue.no_shows_today.length})</b>
+            <p className="muted" style={{ fontSize: '0.8rem' }}>Marked absent — requeue to bring them back into the live queue (behind arrivals, ahead of walk-ins).</p>
+            {queue.no_shows_today.map((n) => (
+              <div key={n.token} className="counter-row">
+                <span className="muted"><b>{n.token}</b> · {n.farmer_name} · {n.crop} {n.quantity_kg}kg · at {n.no_shown_at?.slice(11, 16)}</span>
+                <button className="mini" onClick={() => act('/staff/requeue', { token: n.token })}>↩ Requeue</button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   )

@@ -32,6 +32,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | GPS self check-in | ✅ working | Farmer checks in from the PWA geofence (2.5 km) — no desk queue |
 | Priority inclusion | ✅ working | Elderly / differently-abled / small-holder precedence at booking and walk-in |
 | Walk-in kiosk tokens | ✅ working | Staff issue instant tokens to unbooked farmers — they join the live queue |
+| No-show handling + requeue | ✅ working | No-shows leave the live queue (no ghost ETAs); staff can requeue them later — behind arrivals, ahead of walk-ins, with SMS confirmation |
 | Public hall board | ✅ working | "Now Serving / Next Up" display for centre halls, auto-refreshing |
 | Farmer disputes (evidence) | ✅ working | Immutable timestamped flags on weight/quality/payment with staff resolution logging |
 | SLA breach watch | ✅ working | Banner alert when any farmer waits beyond the service threshold |
@@ -105,7 +106,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **86 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking, the national brain, the prevention sweep and counter-slowdown detection.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **90 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking, the national brain, the prevention sweep, counter-slowdown detection and the no-show → requeue cycle.
 
 ## 🎬 5-minute demo script
 

@@ -106,7 +106,7 @@ def recompute_mandi(mandi_id: str):
         """
         SELECT * FROM tickets
         WHERE mandi_id = ? AND slot_date = ?
-          AND status IN ('SLOT_BOOKED','ARRIVED','NO_SHOW')
+          AND status IN ('SLOT_BOOKED','ARRIVED')
         ORDER BY priority DESC, slot_time, id
         """,
         (mandi_id, date),
@@ -146,9 +146,9 @@ def recompute_mandi(mandi_id: str):
         item["queue_group"] = "SERVING"
         queue.append(item)
 
-    # --- 2. Waiting farmers (ARRIVED), then pre-arrivals (SLOT_BOOKED/NO_SHOW) ---
+    # --- 2. Waiting farmers (ARRIVED), then pre-arrivals (SLOT_BOOKED) ---
     arrived = [dict(r) for r in waiting_rows if r["status"] == "ARRIVED"]
-    pre = [dict(r) for r in waiting_rows if r["status"] in ("SLOT_BOOKED", "NO_SHOW")]
+    pre = [dict(r) for r in waiting_rows if r["status"] == "SLOT_BOOKED"]
 
     position_cursor = len(queue)
     for group in (arrived, pre):

@@ -219,7 +219,46 @@ def dashboard(user: dict = Depends(staff_auth)):
 
 @router.get("/queue")
 def queue(user: dict = Depends(staff_auth)):
-    return get_snapshot(_require_mandi(user))
+    snap = get_snapshot(_require_mandi(user))
+    # Today's no-shows surfaced separately so staff can requeue them.
+    rows = query(
+        """
+        SELECT id AS ticket_id, token, farmer_name, crop, quantity_kg, no_shown_at
+        FROM tickets WHERE mandi_id = ? AND slot_date = ? AND status = 'NO_SHOW'
+        ORDER BY no_shown_at DESC LIMIT 30
+        """,
+        (snap["mandi_id"], snap["date"]),
+    )
+    snap["no_shows_today"] = [dict(r) for r in rows]
+    return snap
+
+
+class RequeueIn(BaseModel):
+    token: str
+
+
+@router.post("/requeue")
+def requeue(body: RequeueIn, user: dict = Depends(staff_auth)):
+    """Bring a no-show farmer back into the live queue (at the back, but
+    prioritised ahead of same-day walk-ins). Reverses a mistaken no-show too."""
+    mandi_id = _require_mandi(user)
+    ticket = _get_ticket(mandi_id, body.token)
+    if ticket["status"] != "NO_SHOW":
+        raise HTTPException(status_code=409, detail=f"Cannot requeue from {ticket['status']}")
+    now = now_iso()
+    execute(
+        "UPDATE tickets SET status = 'ARRIVED', checked_in_at = ?, no_shown_at = NULL,"
+        " priority = -1, turn_soon_alerted = 0, escalated = 0, leave_home_alerted = 1 WHERE id = ?",
+        (now, ticket["id"]),
+    )
+    log_event(mandi_id, f"STAFF:{user['username']}", "NO_SHOW_REQUEUED", {"token": body.token}, ticket["id"])
+    snap = recompute_mandi(mandi_id)
+    mine = next((q for q in snap["queue"] if q["ticket_id"] == ticket["id"]), None)
+    position = mine["position"] if mine else 0
+    eta = int(mine["eta_minutes"] or 0) if mine else 0
+    send_sms(ticket["phone"], ticket["lang"], "ARRIVAL_CONFIRMED",
+             {"token": body.token, "position": position, "eta": eta}, ticket["id"])
+    return {"ok": True, "token": body.token, "position": position, "eta_minutes": eta}
 
 
 @router.post("/checkin")
