@@ -27,6 +27,15 @@ header {
 .lang-btn:hover { border-color: var(--green); background: #f2f8f2; }
 .lang-pick { max-width: 560px; width: 92%; }
 .map-legend { display: flex; gap: 14px; font-size: 0.8rem; margin: 6px 0 8px; flex-wrap: wrap; }
+.banner.call.incoming {
+  animation: ring 1.2s ease-in-out infinite;
+  border-color: #188038;
+  background: #e9f5ec;
+}
+@keyframes ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(24, 128, 56, 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(24, 128, 56, 0.08); }
+}
 .live-dot {
   font-size: 0.62rem; font-weight: 700; letter-spacing: 0.5px; color: #fff;
   background: var(--red); border-radius: 999px; padding: 2px 8px;

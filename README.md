@@ -19,7 +19,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | AI smart slots | ✅ working | Recommended slot + expected wait + confidence % |
 | Dynamic queue engine | ✅ working | Live positions recalculated on every event; serving/waiting/upcoming groups |
 | Wait-time prediction | ✅ working | Ridge regression on 30-day synthetic history, analytic fallback, confidence score |
-| **Leave-Home alert** | ✅ working | Auto SMS + IVR call when ETA ≤ 45 min; turn-approaching alert at position ≤ 2 |
+| **Leave-Home alert** | ✅ working | Auto SMS + **auto voice call** when ETA ≤ 45 min; turn-approaching alert at position ≤ 2. Every automatic call RINGS in the farmer's app via WebSocket — banner + spoken playback in their language, no button press |
 | Workflow tracking | ✅ working | Slot Booked → Arrived → Weighing → Quality → Payment → Completed, timestamped audit trail |
 | Payment intelligence | ✅ working | MSP-based amount, delay detection, status in farmer view |
 | Tamper-evident receipts | ✅ working | Per-mandi SHA-256 hash-chain of procurement records; one-click chain verification |

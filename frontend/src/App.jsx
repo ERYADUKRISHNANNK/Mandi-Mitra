@@ -135,6 +135,7 @@ function FarmerView({ lang }) {
   const [voiceText, setVoiceText] = useState('')
   const [voiceProposal, setVoiceProposal] = useState(null)
   const [vbErr, setVbErr] = useState('')
+  const [incomingCall, setIncomingCall] = useState(null)
   const [copilotText, setCopilotText] = useState('')
   const [copilotPlan, setCopilotPlan] = useState(null)
   const [dep, setDep] = useState(null)
@@ -221,12 +222,20 @@ function FarmerView({ lang }) {
 
   useEffect(() => { loadStatus() /* eslint-disable-line */ }, [ticket?.token])
 
-  // Live queue updates via WebSocket.
+  // Live queue updates via WebSocket + automatic incoming voice calls.
   useEffect(() => {
     if (!status?.mandi_id) return
     wsRef.current?.close()
     wsRef.current = connectQueue(status.mandi_id, (evt) => {
       if (evt.type === 'queue_update') loadStatus() /* eslint-disable-line */
+      if (evt.type === 'voice_call' && evt.data) {
+        const call = evt.data
+        // Only ring for THIS farmer's phone (the simulated gateway targets one phone).
+        if (call.phone && ticket?.phone && call.phone !== ticket.phone) return
+        setIncomingCall(call)
+        speak(call.body || '', lang)
+        setTimeout(() => setIncomingCall(null), 12000)
+      }
     })
     return () => wsRef.current?.close()
   }, [status?.mandi_id]) // eslint-disable-line
@@ -321,6 +330,16 @@ function FarmerView({ lang }) {
     const turnSoon = status.turn_soon_alerted && status.status === 'ARRIVED'
     return (
       <div className="fade-in">
+        {incomingCall && (
+          <div className="banner call incoming">
+            📞 <b>{t.incomingCall}</b> — {incomingCall.body}
+            <button className="mini" style={{ marginLeft: 8 }}
+                    onClick={() => { speak(incomingCall.body || '', lang); }}>
+              🔊 {t.callReplay}
+            </button>
+            <button className="mini" style={{ marginLeft: 4 }} onClick={() => setIncomingCall(null)}>×</button>
+          </div>
+        )}
         {offline && <div className="banner warn">📴 {t.offline}</div>}
         {status.eta_delta != null && Math.abs(status.eta_delta) >= 1 && (
           <div className={`banner ${status.eta_delta > 0 ? 'ok-banner' : 'warn'}`}>
