@@ -639,12 +639,13 @@ function StaffView({ lang, onLogout }) {
   const [mh, setMh] = useState(null)
   const [ins, setIns] = useState(null)
   const [trust, setTrust] = useState(null)
+  const [slow, setSlow] = useState(null)
   const [emergency, setEmergency] = useState(false)
   const [err, setErr] = useState('')
 
   const load = async () => {
     try {
-      const [d, q, b, a, s, w, dp, ch, br, ht, cp, mhd, insd, tsd] = await Promise.all([
+      const [d, q, b, a, s, w, dp, ch, br, ht, cp, mhd, insd, tsd, slw] = await Promise.all([
         api.get('/staff/dashboard', jwt),
         api.get('/staff/queue', jwt),
         api.get('/staff/bottleneck', jwt),
@@ -659,10 +660,11 @@ function StaffView({ lang, onLogout }) {
         api.get('/staff/model-health', jwt),
         api.get('/staff/insider', jwt),
         api.get('/staff/trust-score', jwt),
+        api.get('/staff/counter-slowdown', jwt),
       ])
       setDash(d); setQueue(q); setBott(b); setAnom(a); setSla(s); setWhatif(w); setDisputes(dp)
       setChannels(ch.notifications || []); setBriefing(br); setHeat(ht); setErr('')
-      setCap(cp); setMh(mhd); setIns(insd); setTrust(tsd)
+      setCap(cp); setMh(mhd); setIns(insd); setTrust(tsd); setSlow(slw)
     } catch (e) { setErr(e.message) }
   }
 
@@ -714,6 +716,15 @@ function StaffView({ lang, onLogout }) {
                   style={{ display: 'none' }} />
           <a className="ghost" href="/api/staff/report/daily.csv" download>📄 Daily CSV</a>
           <button className="ghost" onClick={() => act('/staff/scenario/congestion', {})}>⚡ Congestion scenario</button>
+          <button className="ghost" onClick={async () => {
+            try {
+              const r = await api.post('/staff/prevention-sweep', {}, jwt)
+              alert(r.farmers_warned > 0
+                ? `🛡 ${r.farmers_warned} at-home farmer(s) warned to stay back — queue prevented, not just monitored`
+                : '🛡 No congestion right now — no warnings needed')
+              await load()
+            } catch (e) { setErr(e.message) }
+          }}>🛡 Prevention sweep</button>
           <button className={`ghost ${emergency ? 'danger' : ''}`} onClick={async () => {
             const next = !emergency
             await act('/staff/emergency-mode', { active: next, reason: next ? 'emergency closure (drill)' : '' })
@@ -786,6 +797,9 @@ function StaffView({ lang, onLogout }) {
                 {c.is_active ? 'Take offline' : 'Bring online'}
               </button>
             </div>
+          ))}
+          {(slow?.counters || []).filter((c) => c.flag).map((c, i) => (
+            <div key={i} className="anomaly sev-high" style={{ marginTop: 8 }}>⚠ {c.flag}</div>
           ))}
           {bott && (
             <div className="advice">

@@ -59,6 +59,12 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "hi": "मंडी मित्र: आप केंद्र नहीं आए (टोकन {token})। पुनः जुड़ने के लिए स्टाफ से संपर्क करें।",
         "ta": "மண்டி மித்ரா: நீங்கள் வரவில்லை (டோக்கன் {token}). மீண்டும் இணைய ஊழியரை தொடர்பு கொள்ளுங்கள்.",
     },
+    "CONGESTION_AHEAD": {
+        "en": "Mandi Mitra: Heavy rush expected at {mandi} around your slot. Stay home — we'll tell you exactly when to start. Or consider {alt}.",
+        "ml": "മണ്ഡി മിത്ര: നിങ്ങളുടെ സ്ലോട്ട് സമയത്ത് {mandi}-ൽ തിരക്ക് പ്രതീക്ഷിക്കുന്നു. വീട്ടിൽ തുടരൂ — എപ്പോൾ ഇറങ്ങണമെന്ന് അറിയിക്കാം. {alt} പരിഗണിക്കാം.",
+        "hi": "मंडी मित्र: आपके स्लॉट के समय {mandi} में भीड़ संभव है। घर पर रहें — सही समय पर सूचना देंगे। {alt} भी देखें।",
+        "ta": "மண்டி மித்ரா: உங்கள் நேரத்தில் {mandi} நெரிசல் எதிர்பார்க்கப்படுகிறது. வீட்டில் இருங்கள் — எப்போது கிளம்ப வேண்டும் என்று சொல்கிறோம். {alt} பார்க்கலாம்.",
+    },
     "PAYMENT_DELAY": {
         "en": "Mandi Mitra: Payment for token {token} is delayed beyond the expected window. Our team is reviewing it.",
         "ml": "മണ്ഡി മിത്ര: ടോക്കൺ {token} പേയ്മെന്റ് പ്രതീക്ഷിച്ച സമയത്തിനപ്പുറം വൈകി. ടീം പരിശോധിക്കുന്നു.",

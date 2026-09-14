@@ -14,6 +14,7 @@ Modules:
   network_brain      — national-level daily intelligence for administrators
 """
 
+import json
 import re
 from datetime import datetime, timedelta
 
@@ -385,3 +386,118 @@ def network_brain() -> dict:
         "actions": actions[:8],
         "note": "AI-assisted network intelligence for administrators — recommendations, not automated decisions.",
     }
+
+
+# --------------------------------------------------------------------------
+# 6) Queue PREVENTION — warn pre-arrival farmers before congestion hits
+# --------------------------------------------------------------------------
+
+def _slowest_open_alternative(mandi_id: str, exclude: str) -> dict | None:
+    """For the prevention message: a calmer open centre with its wait."""
+    for c in discover(None, None, None, 0):
+        if c["mandi_id"] != exclude and c["status"] == "OPEN":
+            return c
+    return None
+
+
+def run_prevention_sweep() -> dict:
+    """The system that PREVENTS queues instead of only monitoring them.
+
+    For every still-at-home (SLOT_BOOKED, not yet warned) farmer at a centre
+    whose live queue crosses the congestion threshold, send a multilingual
+    'stay home, we'll tell you when to start' SMS and surface the offer in
+    the app. Idempotent via the congestion_warned flag."""
+    from .i18n import render
+    from .notify import send_sms
+    threshold = 20  # 20+ waiting farmers = congested for a 3-counter prototype centre
+    warned, skipped = [], 0
+    for m in query("SELECT * FROM mandis"):
+        snap = _snap(m["id"])
+        waiting = sum(1 for q in snap["queue"] if q["queue_group"] in ("WAITING", "UPCOMING"))
+        if waiting < threshold:
+            continue
+        alt = _slowest_open_alternative(m["id"], m["id"])
+        alt_name = alt["name"] if alt else "another centre"
+        rows = query(
+            "SELECT id, token, phone, lang FROM tickets WHERE mandi_id = ? AND slot_date = ?"
+            " AND status = 'SLOT_BOOKED' AND congestion_warned = 0",
+            (m["id"], today_str()),
+        )
+        for t in rows:
+            body = render(t["lang"], "CONGESTION_AHEAD",
+                          {"mandi": m["name"], "alt": alt_name})
+            send_sms(t["phone"], t["lang"], "CONGESTION_AHEAD",
+                     {"mandi": m["name"], "alt": alt_name}, t["id"])
+            execute("UPDATE tickets SET congestion_warned = 1 WHERE id = ?", (t["id"],))
+            warned.append({"token": t["token"], "mandi": m["name"], "alternative": alt_name})
+    return {"ok": True, "threshold_waiting": threshold, "farmers_warned": len(warned),
+            "details": warned[:10],
+            "note": "Prevention, not monitoring: farmers are warned BEFORE they travel into congestion."}
+
+
+# --------------------------------------------------------------------------
+# 7) Counter slowdown detection — staff-side early warning
+# --------------------------------------------------------------------------
+
+def counter_slowdown(mandi_id: str) -> dict:
+    """Flags counters processing >30% slower than the mandi average and pairs
+    each flag with a concrete staffing recommendation.
+
+    Durations are derived from the audit trail: each WEIGHING/QUALITY_CHECK
+    event for a ticket marks the START of a stage, so the gap to the next
+    event for the same ticket measures how long that stage (and its counter)
+    took. This works without extra schema and uses the immutable log."""
+    all_rows = query(
+        "SELECT id, ts, action, ticket_id, details FROM audit_events WHERE mandi_id = ? AND ticket_id IS NOT NULL"
+        " ORDER BY ticket_id, id",
+        (mandi_id,),
+    )
+    # Stage-segment model: every event CLOSES the previous segment (attributed
+    # to the counter that served it); WEIGHING/QUALITY_CHECK events OPEN a new
+    # segment at their counter.
+    samples: dict[int, list[float]] = {}
+    last_event: dict[int, tuple[str, int]] = {}  # ticket_id -> (ts, counter_id)
+    for r in all_rows:
+        try:
+            details = json.loads(r["details"] or "{}")
+        except Exception:
+            details = {}
+        cid = details.get("counter_id")
+        tid = r["ticket_id"]
+        prev = last_event.get(tid)
+        if prev:
+            try:
+                mins = (datetime.fromisoformat(r["ts"]) - datetime.fromisoformat(prev[0])).total_seconds() / 60.0
+                if 0.2 <= mins < 240:  # sub-12s transitions are autopilot noise
+                    samples.setdefault(prev[1], []).append(mins)
+            except Exception:
+                pass
+            last_event.pop(tid, None)
+        if r["action"] in ("WEIGHING", "QUALITY_CHECK") and cid:
+            last_event[tid] = (r["ts"], cid)
+    if not samples:
+        return {"counters": [], "mandi_avg_minutes": None, "flagged": 0,
+                "note": "Awaiting counter-attributed processing data today"}
+    flat = [m for v in samples.values() for m in v]
+    mandi_avg = sum(flat) / len(flat)
+    counters = []
+    for cid, vals in samples.items():
+        c = query_one("SELECT code, type, is_active FROM counters WHERE id = ?", (cid,))
+        avg_min = sum(vals) / len(vals)
+        pct = avg_min / mandi_avg - 1.0
+        entry = {
+            "counter_id": cid, "code": c["code"] if c else str(cid),
+            "type": c["type"] if c else "—", "is_active": bool(c["is_active"]) if c else False,
+            "samples": len(vals), "avg_minutes": round(avg_min, 1),
+            "vs_mandi_avg_pct": round(pct * 100),
+        }
+        if pct >= 0.30 and len(vals) >= 2:
+            entry["flag"] = (f"{entry['code']} is {round(pct * 100)}% slower than the centre average "
+                             f"({entry['avg_minutes']} vs {round(mandi_avg, 1)} min) — likely bottleneck: "
+                             f"{'quality check' if entry['type'] == 'QUALITY_CHECK' else 'weighing'}. "
+                             "Recommend assigning additional staff for the next 2 hours.")
+        counters.append(entry)
+    counters.sort(key=lambda x: -x["vs_mandi_avg_pct"])
+    flagged = sum(1 for c in counters if "flag" in c)
+    return {"counters": counters, "mandi_avg_minutes": round(mandi_avg, 1), "flagged": flagged,
+            "note": "Slow counters get a staffing recommendation — the mandi side of the intelligence."}

@@ -378,5 +378,16 @@ check("national mandi brain", code == 200 and nb.get("summary", {}).get("monitor
 code, nb403 = call("GET", "/api/admin/network-brain", token=jwt)
 check("network brain admin-only", code in (401, 403))
 
+# --- wave-6b: queue prevention sweep + counter slowdown detection ------------
+code, cs = call("GET", "/api/staff/counter-slowdown", token=jwt)
+check("counter slowdown detection", code == 200 and isinstance(cs.get("counters"), list)
+      and cs.get("mandi_avg_minutes") is not None)
+
+code, ps = call("POST", "/api/staff/prevention-sweep", {}, token=jwt)
+check("prevention warns farmers under congestion", code == 200 and ps.get("ok")
+      and ps.get("farmers_warned", 0) >= 1, str(ps)[:160])
+code, ps3 = call("POST", "/api/staff/prevention-sweep", {}, token=jwt)
+check("prevention sweep does not double-warn", code == 200 and ps3.get("farmers_warned") == 0)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

@@ -262,7 +262,8 @@ def _start_stage(body: StageIn, user: dict, stage: str):
     counter_id = _assign_counter(mandi_id, ticket["id"], counter_type, body.counter_id)
     execute("UPDATE tickets SET status = ?, stage_started_at = ? WHERE id = ?",
             (stage, now_iso(), ticket["id"]))
-    log_event(mandi_id, f"STAFF:{user['username']}", stage, {"token": body.token}, ticket["id"])
+    log_event(mandi_id, f"STAFF:{user['username']}", stage,
+              {"token": body.token, "counter_id": counter_id}, ticket["id"])
     if stage == "WEIGHING":
         code_row = query_one("SELECT code FROM counters WHERE id = ?", (counter_id,)) if counter_id else None
         send_sms(ticket["phone"], ticket["lang"], "WEIGHING_STARTED",
@@ -751,6 +752,7 @@ def scenario_congestion(body: ScenarioIn, user: dict = Depends(staff_auth)):
     Idempotent: reuses the same markers on repeated runs."""
     from .audit import log_event
     from datetime import timedelta
+    import json as _json
     mandi_id = body.mandi_id or _require_mandi(user)
     date = today_str()
     now = datetime.now()
@@ -803,10 +805,53 @@ def scenario_congestion(body: ScenarioIn, user: dict = Depends(staff_auth)):
             )
             created.append(token)
         log_event(mandi_id, "SCENARIO", "VELOCITY_SEED", {"phone": "9001199999", "count": 5}, None)
+    # 5) Pre-arrival wave: 15 farmers booked for later slots (still at home) —
+    #    pushes the centre past the congestion threshold so the prevention
+    #    sweep and diversion intelligence light up.
+    # 6) Slow-counter evidence: one counter with realistic multi-minute stage
+    #    durations and backdated WEIGHING/QUALITY_CHECK audit events so the
+    #    slowdown detector has signal to flag (Counter 2, 60% slower).
+    slow = query_one("SELECT id, code FROM counters WHERE mandi_id = ? AND code LIKE '%2%' LIMIT 1", (mandi_id,))
+    base = query_one(
+        "SELECT id, code FROM counters WHERE mandi_id = ? AND type = 'WEIGHING' AND id != ? LIMIT 1",
+        (mandi_id, slow["id"] if slow else -1),
+    )
+    if slow and base and not query_one("SELECT 1 FROM tickets WHERE farmer_name = 'Slow Counter Probe'"):
+        probe = insert("9001180001", "Slow Counter Probe", "ARRIVED", 45, 30)
+        for phone, name, mins_ago, status in (
+            ("9001180002", "Slow Hist A", 80, "ARRIVED"),
+            ("9001180003", "Slow Hist B", 70, "ARRIVED"),
+        ):
+            insert(phone, name, status, mins_ago)
+        hist = query("SELECT id, phone FROM tickets WHERE mandi_id = ? AND phone LIKE '900118%' ORDER BY id", (mandi_id,))
+        anchor = now
+        for i, row in enumerate(hist):
+            cid, stage_min = (slow["id"], 11 + (row["id"] % 3)) if i == 0 else (base["id"], 5 + (row["id"] % 2))
+            t0 = anchor - timedelta(minutes=60 + (row["id"] % 7) * 3)
+            execute("INSERT INTO audit_events (ts, mandi_id, ticket_id, actor, action, details) VALUES (?, ?, ?, 'SCENARIO', 'WEIGHING', ?)",
+                    (t0.isoformat(timespec='seconds'), mandi_id, row["id"], _json.dumps({"counter_id": cid})))
+            execute("INSERT INTO audit_events (ts, mandi_id, ticket_id, actor, action, details) VALUES (?, ?, ?, 'SCENARIO', 'QUALITY_CHECK', ?)",
+                    ((t0 + timedelta(minutes=stage_min)).isoformat(timespec='seconds'), mandi_id, row["id"], _json.dumps({"counter_id": cid})))
+            execute("INSERT INTO audit_events (ts, mandi_id, ticket_id, actor, action, details) VALUES (?, ?, ?, 'SCENARIO', 'PROCUREMENT_APPROVED', ?)",
+                    ((t0 + timedelta(minutes=stage_min + 5)).isoformat(timespec='seconds'), mandi_id, row["id"], _json.dumps({})))
+        log_event(mandi_id, "SCENARIO", "SLOW_COUNTER_SEED", {"counter": slow["code"]}, None)
+    if not query_one("SELECT 1 FROM tickets WHERE phone = '9001170001'"):
+        slot = (now + timedelta(hours=3)).strftime("%H:%M")
+        for i in range(15):
+            token = next_token(mandi_id)
+            execute(
+                """
+                INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+                    slot_date, slot_time, lang, status, created_at)
+                VALUES (?, ?, ?, ?, 'Paddy', 450, ?, ?, 'ml', 'SLOT_BOOKED', ?)
+                """,
+                (token, mandi_id, f"9001170{i:03d}", f"Wave Farmer {i + 1}", date, slot, now_iso()),
+            )
+            created.append(token)
 
     recompute_mandi(mandi_id)
     return {"ok": True, "mandi_id": mandi_id, "note":
-            "Congestion scenario injected: SLA breaches, stuck stage, delayed payment, velocity anomaly."}
+            "Congestion scenario injected: SLA breaches, stuck stage, delayed payment, velocity anomaly, pre-arrival wave, slow counter."}
 
 
 @router.get("/ml/info")
@@ -887,6 +932,21 @@ def capacity_plan_ep(user: dict = Depends(staff_auth)):
 def heatmap_ep(user: dict = Depends(staff_auth)):
     from .twin import bottleneck_heatmap
     return bottleneck_heatmap(_require_mandi(user))
+
+
+@router.get("/counter-slowdown")
+def counter_slowdown_ep(user: dict = Depends(staff_auth)):
+    """Counter 2 is 38% slower than average — early-warning staffing advice."""
+    from .plan import counter_slowdown
+    return counter_slowdown(_require_mandi(user))
+
+
+@router.post("/prevention-sweep")
+def prevention_sweep_ep(user: dict = Depends(staff_auth)):
+    """Prevent queues instead of monitoring them: warn still-at-home farmers
+    whose centre has gone congested, with multilingual stay-home guidance."""
+    from .plan import run_prevention_sweep
+    return run_prevention_sweep()
 
 
 @router.get("/quantity-forecast")

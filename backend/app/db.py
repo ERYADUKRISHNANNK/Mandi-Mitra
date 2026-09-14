@@ -248,6 +248,7 @@ def init_db():
         "ALTER TABLE tickets ADD COLUMN alert_ack_at TEXT",
         "ALTER TABLE tickets ADD COLUMN vehicle_type TEXT",
         "ALTER TABLE grievances ADD COLUMN priority TEXT NOT NULL DEFAULT 'MEDIUM'",
+        "ALTER TABLE tickets ADD COLUMN congestion_warned INTEGER NOT NULL DEFAULT 0",
     ):
         try:
             conn.execute(stmt)

@@ -74,6 +74,8 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | **Intelligent rebooking (transfer)** | ✅ working | When load shifts, the system offers a better centre with quantified savings; farmer confirms; transfer re-slots with priority |
 | **Simple Mode** | ✅ working | Farmer-simple big-button UI (MY TURN / START AT / PAYMENT / LISTEN) — zero jargon, all AI underneath |
 | **🇮🇳 National Mandi Brain** | ✅ working | Admin intelligence: tomorrow's overloaded centres, underutilized centres, payment hotspots + recommended action list |
+| **🛡 Queue PREVENTION sweep** | ✅ working | Detects congested centres and warns still-at-home farmers BEFORE they travel (multilingual stay-home SMS + alternative centre) — preventing the queue, not monitoring it; idempotent |
+| **⚠ Counter slowdown detection** | ✅ working | Flags counters >30% slower than the centre average from the audit trail with staffing recommendation — the mandi side of the intelligence |
 
 ## 🚀 Run it (2 terminals, ~1 minute)
 
@@ -103,7 +105,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **83 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking and the national brain.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **86 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking, the national brain, the prevention sweep and counter-slowdown detection.
 
 ## 🎬 5-minute demo script
 
