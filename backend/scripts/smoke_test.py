@@ -176,5 +176,27 @@ check("what-if counter scenarios", code == 200 and len(whatif.get("scenarios", [
 code, csv = call("GET", "/api/staff/report/daily.csv", token=jwt)
 check("daily governance CSV", code == 200 and str(csv).startswith("token,"))
 
+code, sc = call("POST", "/api/staff/scenario/congestion", {}, token=jwt)
+check("congestion scenario injector", code == 200 and sc.get("ok"))
+
+code, sla2 = call("GET", "/api/staff/sla", token=jwt)
+check("SLA detects injected breaches", code == 200 and sla2.get("breaches"))
+
+code, an2 = call("GET", "/api/staff/anomalies", token=jwt)
+check("anomaly scanner detects velocity seed",
+      code == 200 and any(f["type"] == "BOOKING_VELOCITY" for f in an2.get("flags", [])))
+
+code, mli = call("GET", "/api/staff/ml/info", token=jwt)
+check("ML explainability endpoint", code == 200 and mli.get("training", {}).get("samples", 0) > 0)
+
+code, ab = call("POST", "/api/staff/agent-book",
+                {"farmer_name": "CSC Agent Farmer", "phone": "9002222333",
+                 "crop": "Paddy", "quantity_kg": 450, "slot_time": "15:30"}, token=jwt)
+check("CSC agent booking", code == 200 and ab.get("token", "").startswith("MND-"))
+
+code, ab2 = call("POST", "/api/staff/agent-book",
+                 {"farmer_name": "CSC Agent Farmer", "phone": "9002222333", "slot_time": "15:30"}, token=jwt)
+check("agent duplicate booking rejected", code == 409)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

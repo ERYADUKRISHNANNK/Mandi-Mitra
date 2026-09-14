@@ -58,11 +58,11 @@ def scan(mandi_id: str) -> dict:
     rows = query(
         f"""
         SELECT token, status, stage_started_at,
-               (julianday('now') - julianday(stage_started_at)) * 1440 AS mins
+               (julianday('now', 'localtime') - julianday(stage_started_at)) * 1440 AS mins
         FROM tickets
         WHERE mandi_id = ? AND slot_date = ? AND status IN ('WEIGHING','QUALITY_CHECK')
           AND stage_started_at IS NOT NULL
-          AND (julianday('now') - julianday(stage_started_at)) * 1440 > 25
+          AND (julianday('now', 'localtime') - julianday(stage_started_at)) * 1440 > 25
         """,
         (mandi_id, date),
     )

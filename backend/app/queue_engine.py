@@ -240,7 +240,7 @@ def _detect_payment_delays(mandi_id: str):
         WHERE mandi_id = ? AND status = 'PAYMENT'
           AND payment_status = 'PROCESSING' AND payment_delayed = 0
           AND payment_submitted_at IS NOT NULL
-          AND (julianday('now') - julianday(payment_submitted_at)) * 1440 >= ?
+          AND (julianday('now', 'localtime') - julianday(payment_submitted_at)) * 1440 >= ?
         """,
         (mandi_id, settings.payment_delay_minutes),
     )

@@ -1,12 +1,14 @@
 """Staff and admin endpoints: operations, analytics, command centre, autopilot."""
 
 import random
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from . import anomaly, congestion, receipts
 from .diversion import recommend_diversion
+from .predictor import train as train_model
 from .audit import log_event
 from .db import execute, now_iso, query, query_one, today_str
 from .i18n import SUPPORTED_LANGS
@@ -80,6 +82,16 @@ class AutoIn(BaseModel):
     mandi_id: str | None = None
 
 
+class AgentBookIn(BaseModel):
+    mandi_id: str | None = None
+    farmer_name: str
+    phone: str
+    crop: str = "Paddy"
+    quantity_kg: float = 500
+    slot_time: str = "14:00"
+    lang: str = "ml"
+
+
 # ------------------------------ helpers ----------------------------------- #
 
 def _require_mandi(user: dict) -> str:
@@ -135,6 +147,7 @@ def _mandi_stats(mandi_id: str) -> dict:
         "counters": counters,
         "anomaly_flags": anomaly_scan["flag_count"],
         "congestion_forecast": congestion.forecast(mandi_id),
+        "ml": {"training": train_model()},
     }
 
 
@@ -502,10 +515,10 @@ def sla_watch(user: dict = Depends(staff_auth)):
     rows = query(
         f"""
         SELECT token, farmer_name, status, checked_in_at,
-               (julianday('now') - julianday(checked_in_at)) * 1440 AS waited_min
+               (julianday('now', 'localtime') - julianday(checked_in_at)) * 1440 AS waited_min
         FROM tickets
         WHERE mandi_id = ? AND slot_date = ? AND status IN ('SLOT_BOOKED','ARRIVED')
-          AND (julianday('now') - julianday(COALESCE(checked_in_at, created_at))) * 1440 > {int(settings.sla_wait_minutes)}
+          AND (julianday('now', 'localtime') - julianday(COALESCE(checked_in_at, created_at))) * 1440 > {int(settings.sla_wait_minutes)}
         ORDER BY waited_min DESC
         """,
         (mandi_id, today_str()),
@@ -611,6 +624,128 @@ def daily_csv(user: dict = Depends(staff_auth)):
 def diversion(user: dict = Depends(staff_auth)):
     """Cross-mandi load-balancing advice for this centre."""
     return recommend_diversion(_require_mandi(user))
+
+
+class ScenarioIn(BaseModel):
+    mandi_id: str | None = None
+
+
+@router.post("/scenario/congestion")
+def scenario_congestion(body: ScenarioIn, user: dict = Depends(staff_auth)):
+    """One-click demo scenario: injects realistic congestion so the intelligence
+    features light up — backdated arrivals (SLA breaches), a stuck stage, a
+    delayed payment, a booking-velocity anomaly, and an over-booked slot.
+    Idempotent: reuses the same markers on repeated runs."""
+    from .audit import log_event
+    from datetime import timedelta
+    mandi_id = body.mandi_id or _require_mandi(user)
+    date = today_str()
+    now = datetime.now()
+    from .routes_farmer import next_token
+    created = []
+
+    def insert(phone, name, status, mins_ago_checked_in, mins_ago_stage=None,
+               slot_time=None, lang="ml", priority=0, flag=None):
+        token = next_token(mandi_id)
+        checked = (now - timedelta(minutes=mins_ago_checked_in)).isoformat(timespec="seconds")
+        stage = (now - timedelta(minutes=mins_ago_stage)).isoformat(timespec="seconds") if mins_ago_stage else None
+        execute(
+            """
+            INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+                slot_date, slot_time, lang, status, priority, priority_flag, checked_in_at,
+                stage_started_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (token, mandi_id, phone, name, "Paddy", 400 + (hash(phone) % 400), date,
+             slot_time or checked[11:16], lang, status, priority, flag, checked, stage, checked),
+        )
+        created.append(token)
+        return token
+
+    # 1) SLA breaches: two arrivals waiting ~90 minutes.
+    if not query_one("SELECT 1 FROM tickets WHERE phone = '9001111001'"):
+        insert("9001111001", "SLA Farmer A", "ARRIVED", 90)
+        insert("9001111002", "SLA Farmer B", "ARRIVED", 75)
+    # 2) Stuck stage: quality check running for an hour.
+    if not query_one("SELECT 1 FROM tickets WHERE phone = '9001111003'"):
+        insert("9001111003", "Stuck Stage Farmer", "QUALITY_CHECK", 70, 60)
+    # 3) Delayed payment: procurement approved 30 min ago, still PROCESSING.
+    if not query_one("SELECT 1 FROM tickets WHERE phone = '9001111004'"):
+        t = insert("9001111004", "Delayed Pay Farmer", "PAYMENT", 40, 30)
+        submitted = (now - timedelta(minutes=25)).isoformat(timespec="seconds")
+        execute("UPDATE tickets SET amount = 11200.0, payment_status = 'PROCESSING', payment_submitted_at = ? WHERE token = ?",
+                (submitted, t))
+    # 4) Booking-velocity anomaly: five concurrent bookings from one phone.
+    if not query_one("SELECT 1 FROM tickets WHERE phone = '9001199999'"):
+        slot = (now + timedelta(minutes=90)).strftime("%H:%M")
+        for _ in range(5):
+            token = next_token(mandi_id)
+            execute(
+                """
+                INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+                    slot_date, slot_time, lang, status, created_at)
+                VALUES (?, ?, ?, ?, 'Wheat', 300, ?, ?, 'en', 'SLOT_BOOKED', ?)
+                """,
+                (token, mandi_id, "9001199999", "Velocity Farmer", date, slot, now_iso()),
+            )
+            created.append(token)
+        log_event(mandi_id, "SCENARIO", "VELOCITY_SEED", {"phone": "9001199999", "count": 5}, None)
+
+    recompute_mandi(mandi_id)
+    return {"ok": True, "mandi_id": mandi_id, "note":
+            "Congestion scenario injected: SLA breaches, stuck stage, delayed payment, velocity anomaly."}
+
+
+@router.get("/ml/info")
+def ml_info(user: dict = Depends(staff_auth)):
+    """Explainability: what the wait-time model is, how good it is, and what
+    happens when data is missing. Directly answers 'show me the AI'."""
+    from .predictor import train
+    status = train()
+    return {
+        "module": "wait-time prediction",
+        "algorithm": "Ridge regression (closed-form) on hourly features",
+        "features": ["hour_of_day", "arrivals", "processed", "active_counters"],
+        "training": status,
+        "fallback": "Analytic queueing model (position x avg processing / counters) when history is sparse or out of range",
+        "confidence_meaning": "0.9 model-backed, 0.55 fallback, decays for positions > 25",
+    }
+
+
+@router.post("/agent-book")
+def agent_book(body: AgentBookIn, user: dict = Depends(staff_auth)):
+    """CSC/VLE agent books on behalf of a farmer at a rural service centre —
+    the adoption path for farmers with no phone or digital literacy at all."""
+    from .audit import log_event
+    from .notify import send_sms
+    from .routes_farmer import next_token
+    mandi_id = body.mandi_id or _require_mandi(user)
+    date = today_str()
+    dup = query_one(
+        "SELECT token FROM tickets WHERE phone = ? AND mandi_id = ? AND slot_date = ?"
+        " AND status IN ('SLOT_BOOKED','ARRIVED','WEIGHING','QUALITY_CHECK','PAYMENT')",
+        (body.phone, mandi_id, date),
+    )
+    if dup:
+        raise HTTPException(status_code=409, detail=f"Farmer already has an active booking: {dup['token']}")
+    token = next_token(mandi_id)
+    execute(
+        """
+        INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+            slot_date, slot_time, lang, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?)
+        """,
+        (token, mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
+         date, body.slot_time, body.lang if body.lang in SUPPORTED_LANGS else "ml", now_iso()),
+    )
+    t = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
+    log_event(mandi_id, f"AGENT:{user['username']}", "BOOKING_CREATED",
+              {"token": token, "channel": "CSC_AGENT", "slot": body.slot_time}, t["id"])
+    send_sms(body.phone, t["lang"], "BOOKING_CONFIRMED",
+             {"token": token, "crop": body.crop, "date": date, "time": body.slot_time}, t["id"])
+    recompute_mandi(mandi_id)
+    return {"ok": True, "token": token, "slot_time": body.slot_time,
+            "message": "Booked by CSC agent on behalf of farmer; confirmation SMS queued."}
 
 
 # --------------------------- demo autopilot ------------------------------- #

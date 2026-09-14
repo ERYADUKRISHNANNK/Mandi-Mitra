@@ -8,6 +8,16 @@ import {
 
 const CROPS = ['Paddy', 'Wheat', 'Maize']
 const LANGS = [['ml', 'മലയാളം'], ['en', 'English'], ['hi', 'हिंदी'], ['ta', 'தமிழ்']]
+const TTS_LANG = { ml: 'ml-IN', en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN' }
+
+function speak(text, lang) {
+  try {
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = TTS_LANG[lang] || 'ml-IN'
+    speechSynthesis.cancel()
+    speechSynthesis.speak(u)
+  } catch { /* TTS unsupported */ }
+}
 
 function Card({ children, className = '' }) {
   return <div className={`card ${className}`}>{children}</div>
@@ -164,6 +174,14 @@ function FarmerView({ lang }) {
 
         <div className="row-btns">
           <button className="ghost" onClick={notifications}>💬 {t.notifications}</button>
+          <button className="ghost" onClick={() => {
+            const pos = isServing ? 'now' : `position ${pos}`
+            speak(`Your token ${status.token}. ${pos}. Expected wait ${eta} minutes.`, lang)
+          }}>🔊 Listen (voice)</button>
+          <button className="ghost" onClick={async () => {
+            const r = await api.post('/farmer/ivr/call', { phone: status.phone, token: status.token, lang })
+            speak(r.ivr_says, lang)
+          }}>📞 Simulate IVR call</button>
           <button className="ghost" onClick={() => { localStorage.removeItem('mm_ticket'); setTicket(null); setStatus(null) }}>↺ New booking</button>
         </div>
         <p className="muted center">{t.bookBySms}</p>
@@ -331,11 +349,13 @@ function StaffView({ lang, onLogout }) {
   const [whatif, setWhatif] = useState(null)
   const [disputes, setDisputes] = useState(null)
   const [walkin, setWalkin] = useState({ name: '', phone: '', crop: 'Paddy', qty: 500, priority: '' })
+  const [agent, setAgent] = useState({ name: '', phone: '', slot: '14:00' })
+  const [channels, setChannels] = useState([])
   const [err, setErr] = useState('')
 
   const load = async () => {
     try {
-      const [d, q, b, a, s, w, dp] = await Promise.all([
+      const [d, q, b, a, s, w, dp, ch] = await Promise.all([
         api.get('/staff/dashboard', jwt),
         api.get('/staff/queue', jwt),
         api.get('/staff/bottleneck', jwt),
@@ -343,8 +363,10 @@ function StaffView({ lang, onLogout }) {
         api.get('/staff/sla', jwt),
         api.get('/staff/whatif', jwt),
         api.get('/staff/disputes', jwt),
+        api.get('/staff/notifications?limit=12', jwt),
       ])
-      setDash(d); setQueue(q); setBott(b); setAnom(a); setSla(s); setWhatif(w); setDisputes(dp); setErr('')
+      setDash(d); setQueue(q); setBott(b); setAnom(a); setSla(s); setWhatif(w); setDisputes(dp)
+      setChannels(ch.notifications || []); setErr('')
     } catch (e) { setErr(e.message) }
   }
 
@@ -395,6 +417,7 @@ function StaffView({ lang, onLogout }) {
           <button className="ghost" onClick={() => window.open('/api/staff/report/daily.csv', '_blank')}
                   style={{ display: 'none' }} />
           <a className="ghost" href="/api/staff/report/daily.csv" download>📄 Daily CSV</a>
+          <button className="ghost" onClick={() => act('/staff/scenario/congestion', {})}>⚡ Congestion scenario</button>
           <button className="ghost" onClick={() => { sessionStorage.clear(); onLogout() }}>⎋</button>
         </div>
       </div>
@@ -528,6 +551,48 @@ function StaffView({ lang, onLogout }) {
       )}
 
       <Card>
+        <h3>📱 CSC / agent booking <span className="muted">(adoption path — booked on farmer's behalf)</span></h3>
+        <div className="grid4">
+          <div><label>Farmer name</label><input value={agent.name} onChange={(e) => setAgent({ ...agent, name: e.target.value })} placeholder="Farmer name" /></div>
+          <div><label>Phone</label><input value={agent.phone} onChange={(e) => setAgent({ ...agent, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="10 digits" /></div>
+          <div><label>Slot</label><input value={agent.slot} onChange={(e) => setAgent({ ...agent, slot: e.target.value })} placeholder="14:00" /></div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button className="primary" style={{ marginTop: 0 }} disabled={agent.phone.length !== 10 || !agent.name}
+                    onClick={async () => {
+                      try {
+                        const r = await api.post('/staff/agent-book', {
+                          farmer_name: agent.name, phone: agent.phone, slot_time: agent.slot,
+                        })
+                        alert(`Booked ${r.token} for ${agent.slot} — SMS confirmation queued`)
+                        setAgent({ name: '', phone: '', slot: '14:00' })
+                        await load()
+                      } catch (e) { setErr(e.message) }
+                    }}>Book for farmer</button>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <h3>💬 Live SMS / IVR channel feed <span className="muted">(every message the system has sent)</span></h3>
+        <div className="channel-feed">
+          {channels.length === 0 && <p className="muted">No messages yet.</p>}
+          {channels.map((n, i) => (
+            <div key={i} className={`feed-row ${n.channel.toLowerCase()}`}>
+              <span className="feed-chan">{n.channel === 'IVR' ? '📞' : '💬'} {n.channel}</span>
+              <span className="feed-body">{n.body}</span>
+              <span className="feed-time muted">{n.created_at?.slice(11, 16)}</span>
+            </div>
+          ))}
+        </div>
+        {dash && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            🤖 Wait-time model: {dash.ml?.training?.mode || 'analytic-fallback'}
+            {dash.ml?.training?.r2 != null && ` · R² ${dash.ml.training.r2}`} · {dash.ml?.training?.samples ?? 0} training samples
+          </p>
+        )}
+      </Card>
+
+      <Card>
         <h3>📋 {t.queue}</h3>
         <table className="queue-table">
           <thead>
@@ -567,11 +632,15 @@ function AdminView({ lang }) {
   const [u, setU] = useState('admin')
   const [p, setP] = useState('')
   const [cc, setCc] = useState(null)
+  const [impact, setImpact] = useState(null)
   const [err, setErr] = useState('')
 
   useEffect(() => {
     if (!jwt) return
-    const load = () => api.get('/admin/command-centre', jwt).then(setCc).catch((e) => setErr(e.message))
+    const load = () => {
+      api.get('/admin/command-centre', jwt).then(setCc).catch((e) => setErr(e.message))
+      api.get('/impact').then(setImpact).catch(() => {})
+    }
     load()
     const iv = setInterval(load, 10000)
     return () => clearInterval(iv)
@@ -613,6 +682,8 @@ function AdminView({ lang }) {
             <Stat label="Completed" value={cc.totals.completed} tone="ok" />
             <Stat label="Pending payments" value={cc.totals.pending_payments} tone={cc.totals.pending_payments ? 'warn' : ''} />
             <Stat label="Receipt chain" value={cc.receipt_chain.verified ? '✅ verified' : '⚠ broken'} tone={cc.receipt_chain.verified ? 'ok' : 'bad'} />
+            {impact && <Stat label="Farmer-hours saved today" value={`${impact.farmer_hours_saved_today}h`} tone="ok" />}
+            {impact && <Stat label="Avg time at centre" value={`${impact.per_mandi?.[0]?.avg_time_in_mandi_min ?? '—'}m`} />}
           </div>
           <MandiMap centres={cc.centres} />
           <Card>
