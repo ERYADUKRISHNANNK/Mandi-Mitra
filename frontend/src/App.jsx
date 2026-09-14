@@ -38,22 +38,24 @@ function pickVoice(lang) {
   return null
 }
 
+let _currentUtterance = null
+
 function speak(text, lang) {
   try {
     const u = new SpeechSynthesisUtterance(text)
     u.lang = TTS_LANG[lang] || 'ml-IN'
     const v = pickVoice(lang)
     if (v) u.voice = v
+    _currentUtterance = u   // keep a reference so Chrome cannot GC mid-speech
+    // Chrome quirk: cancel() followed IMMEDIATELY by speak() is often
+    // silent — especially on repeated clicks. Split with a micro-delay.
     speechSynthesis.cancel()
-    speechSynthesis.speak(u)
-    // Chrome loads voices asynchronously — re-pick once they arrive.
-    if (!v) {
-      speechSynthesis.onvoiceschanged = () => {
-        const vv = pickVoice(lang)
-        if (vv) { try { speechSynthesis.cancel() } catch { /* */ } }
-        speechSynthesis.onvoiceschanged = null
-      }
-    }
+    setTimeout(() => {
+      try {
+        speechSynthesis.speak(u)
+        if (speechSynthesis.paused) speechSynthesis.resume()
+      } catch { /* */ }
+    }, 60)
   } catch { /* TTS unsupported */ }
 }
 
