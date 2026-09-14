@@ -87,10 +87,12 @@ export const STR = {
     mobile: '📱 Mobile number',
     priority: '♿ Priority request (elderly / disabled / small holder get queue precedence)',
     changeAnytime: 'You can change this anytime from the ⚙ language selector',
+    voiceNote: 'If the voice sounds English, your device is missing this language voice pack — install it (Settings → Time & Language → Speech) or use text + SMS; everything else still works.',
   },
   ml: {
     appName: 'മണ്ഡി മിത്ര',
     changeAnytime: 'ഈ ഭാഷ എപ്പോൾ വേണമെന്നും ⚙ സെലക്ടറിൽ മാറ്റാം',
+    voiceNote: 'ശബ്ദം ഇംഗ്ലീഷായി തോന്നിയാൽ, ഈ ഭാഷയുടെ വോയ്സ് പാക്ക് ഉപകരണത്തിൽ ഇല്ല — ഇൻസ്റ്റാൾ ചെയ്യുക (Settings → Time & Language → Speech) അല്ലെങ്കിൽ ടെക്സ്റ്റ്/SMS ഉപയോഗിക്കുക.',
     tagline: 'നിങ്ങളുടെ ടേൺ അറിയുക. പ്രസക്തമായ സമയത്ത് എത്തുക.',
     book: 'വാങ്ങൽ സ്ലോട്ട് ബുക്ക് ചെയ്യുക',
     mandi: 'വാങ്ങൽ കേന്ദ്രം',
@@ -179,6 +181,7 @@ export const STR = {
   hi: {
     appName: 'मंडी मित्र',
     changeAnytime: 'इसे कभी भी ⚙ भाषा चयनकर्ता से बदलें',
+    voiceNote: 'अगर आवाज़ अंग्रेज़ी जैसी लगे, तो इस भाषा का वॉइस पैक डिवाइस में नहीं है — इंस्टॉल करें (Settings → Time & Language → Speech) या टेक्स्ट/SMS इस्तेमाल करें।',
     tagline: 'अपनी बारी जानें। सही समय पर पहुँचें।',
     book: 'खरीद स्लॉट बुक करें',
     mandi: 'खरीद केंद्र',
@@ -267,6 +270,7 @@ export const STR = {
   ta: {
     appName: 'மண்டி மித்ரா',
     changeAnytime: 'இதை எப்போது வேண்டுமானாலும் ⚙ மொழி தேர்வில் மாற்றலாம்',
+    voiceNote: 'குரல் ஆங்கிலமாக தோன்றினால், இந்த மொழியின் குரல் தொகுப்பு சாதனத்தில் இல்லை — நிறுவுங்கள் (Settings → Time & Language → Speech) அல்லது உரை/SMS பயன்படுத்துங்கள்.',
     tagline: 'உங்கள் முறையை தெரிந்துகொள்ளுங்கள். சரியான நேரத்தில் வாருங்கள்.',
     book: 'கொள்முதல் ஸ்லாட் பதிவு',
     mandi: 'கொள்முதல் மையம்',
@@ -355,6 +359,7 @@ export const STR = {
   pa: {
     appName: 'ਮੰਡੀ ਮਿੱਤਰ',
     changeAnytime: 'ਇਹ ਕਿਸੇ ਵੀ ਸਮੇਂ ⚙ ਭਾਸ਼ਾ ਚੋਣਕਾਰ ਤੋਂ ਬਦਲੋ',
+    voiceNote: 'ਜੇ ਆਵਾਜ਼ ਅੰਗਰੇਜ਼ੀ ਵਰਗੀ ਲੱਗੇ, ਤਾਂ ਇਸ ਭਾਸ਼ਾ ਦਾ ਵੌਇਸ ਪੈਕ ਡਿਵਾਈਸ ਵਿੱਚ ਨਹੀਂ ਹੈ — ਇੰਸਟਾਲ ਕਰੋ (Settings → Time & Language → Speech) ਜਾਂ ਟੈਕਸਟ/SMS ਵਰਤੋ।',
     tagline: 'ਆਪਣੀ ਵਾਰੀ ਜਾਣੋ। ਸਹੀ ਸਮੇਂ ਤੇ ਪਹੁੰਚੋ।',
     book: 'ਖ਼ਰੀਦ ਸਲਾਟ ਬੁੱਕ ਕਰੋ',
     mandi: 'ਖ਼ਰੀਦ ਕੇਂਦਰ',
@@ -443,6 +448,7 @@ export const STR = {
   mr: {
     appName: 'मंडी मित्र',
     changeAnytime: 'हे कधीही ⚙ भाषा निवडकर्त्यातून बदला',
+    voiceNote: 'आवाज इंग्रजीसारखा वाटल्यास, या भाषेचा व्हॉइस पॅक उपकरणात नाही — इंस्टॉल करा (Settings → Time & Language → Speech) किंवा मजकूर/SMS वापरा.',
     tagline: 'तुमची वाट जाणून घ्या. योग्य वेळी पोहोचा.',
     book: 'खरेदी स्लॉट बुक करा',
     mandi: 'खरेदी केंद्र',
@@ -531,6 +537,7 @@ export const STR = {
   te: {
     appName: 'మండి మిత్ర',
     changeAnytime: 'దీన్ని ఎప్పుడైనా ⚙ భాష ఎంపికలో మార్చుకోండి',
+    voiceNote: 'స్వరం ఇంగ్లీష్‌లా అనిపిస్తే, ఈ భాష వాయిస్ ప్యాక్ పరికరంలో లేదు — ఇన్‌స్టాల్ చేయండి (Settings → Time & Language → Speech) లేదా టెక్స్ట్/SMS వాడండి.',
     tagline: 'మీ వరుసను తెలుసుకోండి. సరైన సమయంలో చేరుకోండి.',
     book: 'కొనుగోలు స్లాట్ బుక్ చేయండి',
     mandi: 'కొనుగోలు కేంద్రం',
@@ -619,6 +626,7 @@ export const STR = {
   kn: {
     appName: 'ಮಂಡಿ ಮಿತ್ರ',
     changeAnytime: 'ಇದನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ⚙ ಭಾಷಾ ಆಯ್ಕೆಯಲ್ಲಿ ಬದಲಾಯಿಸಿ',
+    voiceNote: 'ಧ್ವನಿ ಇಂಗ್ಲಿಷ್‌ನಂತೆ ಕಂಡರೆ, ಈ ಭಾಷೆಯ ಧ್ವನಿ ಪ್ಯಾಕ್ ಸಾಧನದಲ್ಲಿಲ್ಲ — ಸ್ಥಾಪಿಸಿ (Settings → Time & Language → Speech) ಅಥವಾ ಪಠ್ಯ/SMS ಬಳಸಿ.',
     tagline: 'ನಿಮ್ಮ ಸರದಿ ತಿಳಿಯಿರಿ. ಸರಿಯಾದ ಸಮಯದಲ್ಲಿ ಬನ್ನಿ.',
     book: 'ಖರೀದಿ ಸ್ಲಾಟ್ ಬುಕ್ ಮಾಡಿ',
     mandi: 'ಖರೀದಿ ಕೇಂದ್ರ',
@@ -707,6 +715,7 @@ export const STR = {
   bn: {
     appName: 'মণ্ডি মিত্র',
     changeAnytime: 'যখন খুশি ⚙ ভাষা নির্বাচক থেকে বদলান',
+    voiceNote: 'যদি কণ্ঠস্বর ইংরেজির মতো মনে হয়, এই ভাষার ভয়েস প্যাক ডিভাইসে নেই — ইনস্টল করুন (Settings → Time & Language → Speech) বা টেক্সট/SMS ব্যবহার করুন।',
     tagline: 'আপনার পালা জানুন। ঠিক সময়ে পৌঁছান।',
     book: 'ক্রয় স্লট বুক করুন',
     mandi: 'ক্রয় কেন্দ্র',
@@ -795,6 +804,7 @@ export const STR = {
   gu: {
     appName: 'માંડી મિત્ર',
     changeAnytime: 'આને ગમે ત્યારે ⚙ ભાષા પસંદગીમાંથી બદલો',
+    voiceNote: 'જો અવાજ અંગ્રેજી જેવો લાગે, તો આ ભાષાનું વૉઇસ પેક ડિવાઇસમાં નથી — ઇન્સ્ટોલ કરો (Settings → Time & Language → Speech) અથવા ટેક્સ્ટ/SMS વાપરો.',
     tagline: 'તમારો વારો જાણો. સાચા સમયે પહોંચો.',
     book: 'ખરીદી સ્લોટ બુક કરો',
     mandi: 'ખરીદી કેન્દ્ર',

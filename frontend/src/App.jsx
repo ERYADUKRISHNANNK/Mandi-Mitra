@@ -17,12 +17,43 @@ const LANGS = [
 const TTS_LANG = { ml: 'ml-IN', en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN', pa: 'pa-IN',
                    mr: 'mr-IN', te: 'te-IN', kn: 'kn-IN', bn: 'bn-IN', gu: 'gu-IN' }
 
+// Voice selection: match the EXACT voice (ml-IN, hi-IN, …) installed on the
+// device, then relax to the language prefix, then any Indic voice. Without
+// this, Windows/Chrome silently reads Indic text with an English voice.
+function pickVoice(lang) {
+  const want = TTS_LANG[lang] || 'ml-IN'
+  const voices = speechSynthesis.getVoices() || []
+  const prefix = want.split('-')[0]
+  const groups = {
+    ml: ['ml', 'ta', 'kn', 'hi'], pa: ['pa', 'hi'], mr: ['mr', 'hi'],
+    bn: ['bn', 'hi'], gu: ['gu', 'hi'], ta: ['ta', 'ml', 'kn'],
+    kn: ['kn', 'ta', 'ml'], te: ['te', 'ta', 'kn'], hi: ['hi'], en: ['en'],
+  }
+  const chain = groups[lang] || [prefix]
+  for (const g of chain) {
+    const v = voices.find((x) => x.lang?.toLowerCase() === `${g}-in`)
+      || voices.find((x) => x.lang?.toLowerCase().startsWith(g))
+    if (v) return v
+  }
+  return null
+}
+
 function speak(text, lang) {
   try {
     const u = new SpeechSynthesisUtterance(text)
     u.lang = TTS_LANG[lang] || 'ml-IN'
+    const v = pickVoice(lang)
+    if (v) u.voice = v
     speechSynthesis.cancel()
     speechSynthesis.speak(u)
+    // Chrome loads voices asynchronously — re-pick once they arrive.
+    if (!v) {
+      speechSynthesis.onvoiceschanged = () => {
+        const vv = pickVoice(lang)
+        if (vv) { try { speechSynthesis.cancel() } catch { /* */ } }
+        speechSynthesis.onvoiceschanged = null
+      }
+    }
   } catch { /* TTS unsupported */ }
 }
 
@@ -1445,6 +1476,9 @@ export default function App() {
           </div>
           <p className="muted" style={{ fontSize: '0.75rem', marginTop: 12 }}>
             {t.changeAnytime} · 📞 No smartphone? Missed call 1800-MANDI · IVR books in your language
+          </p>
+          <p className="muted" style={{ fontSize: '0.7rem', marginTop: 6 }}>
+            🔊 {t.voiceNote}
           </p>
         </Card>
       </div>
