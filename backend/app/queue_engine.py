@@ -186,6 +186,26 @@ def recompute_mandi(mandi_id: str):
             r["eta_confidence"] = w["confidence"]
             queue.append(r)
 
+    # --- 2.5 ETA re-optimization deltas + no-show risk -----------------------
+    for r in queue:
+        if r.get("queue_group") == "SERVING":
+            continue
+        prev = r.get("last_eta_minutes")
+        r["prev_eta_minutes"] = prev
+        r["eta_delta"] = round(prev - r["eta_minutes"], 1) if prev is not None else None
+        if prev is None or abs(prev - r["eta_minutes"]) > 0.05:
+            execute("UPDATE tickets SET last_eta_minutes = ?, prev_eta_minutes = ? WHERE id = ?",
+                    (r["eta_minutes"], prev, r["id"]))
+        if r["status"] == "SLOT_BOOKED":
+            from .no_show_risk import score as risk_score
+            risk = risk_score(r)
+            r["no_show_risk"] = risk["risk"]
+            r["risk_band"] = risk["band"]
+            r["risk_reasons"] = risk["reasons"]
+            if r.get("risk_band") != risk["band"]:
+                execute("UPDATE tickets SET no_show_risk = ?, risk_band = ? WHERE id = ?",
+                        (risk["risk"], risk["band"], r["id"]))
+
     # --- 3. Triggers: leave-home, turn-soon, payment delay -------------------
     for r in queue:
         _maybe_alert(r)
@@ -223,6 +243,14 @@ def _maybe_alert(r: dict):
         send_voice(r["phone"], r["lang"], "LEAVE_HOME", ctx, ticket_id)
         execute("UPDATE tickets SET leave_home_alerted = 1 WHERE id = ?", (ticket_id,))
         r["leave_home_alerted"] = 1
+
+    # Escalation ladder: leave-home sent but unacknowledged and turn now close -> IVR escalation call.
+    if (r["status"] == "SLOT_BOOKED" and r["leave_home_alerted"] and not r["escalated"]
+            and not r["alert_ack_at"] and 0 < eta <= settings.leave_home_lead_minutes / 2):
+        ctx = {"token": r["token"], "eta_time": _fmt_clock(eta), "position": r["position"]}
+        send_voice(r["phone"], r["lang"], "LEAVE_HOME", ctx, ticket_id)
+        execute("UPDATE tickets SET escalated = 1 WHERE id = ?", (ticket_id,))
+        r["escalated"] = 1
 
     # Turn-approaching: few farmers ahead and the farmer has arrived.
     if r["status"] == "ARRIVED" and not r["turn_soon_alerted"] and 0 < r["position"] <= settings.turn_soon_position:
@@ -267,6 +295,11 @@ def _public_snapshot(snapshot: dict) -> dict:
             "priority": r["priority"],
             "leave_home_alerted": bool(r.get("leave_home_alerted")),
             "turn_soon_alerted": bool(r.get("turn_soon_alerted")),
+            "eta_delta": r.get("eta_delta"),
+            "no_show_risk": r.get("no_show_risk"),
+            "risk_band": r.get("risk_band"),
+            "risk_reasons": r.get("risk_reasons", []),
+            "escalated": bool(r.get("escalated")),
         }
         for r in snapshot["queue"]
     ]
@@ -314,6 +347,10 @@ def get_ticket_public(ticket) -> dict:
         "payment_delayed": bool(r["payment_delayed"]),
         "leave_home_alerted": bool(r["leave_home_alerted"]),
         "turn_soon_alerted": bool(r["turn_soon_alerted"]),
+        "eta_delta": r.get("eta_delta") if "eta_delta" in r else None,
+        "no_show_risk": r.get("no_show_risk") if "no_show_risk" in r else None,
+        "risk_band": r.get("risk_band") if "risk_band" in r else None,
+        "escalated": bool(r["escalated"]) if "escalated" in r else False,
         "created_at": r["created_at"],
         "checked_in_at": r["checked_in_at"],
         "completed_at": r["completed_at"],

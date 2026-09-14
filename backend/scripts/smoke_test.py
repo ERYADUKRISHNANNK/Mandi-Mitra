@@ -198,5 +198,25 @@ code, ab2 = call("POST", "/api/staff/agent-book",
                  {"farmer_name": "CSC Agent Farmer", "phone": "9002222333", "slot_time": "15:30"}, token=jwt)
 check("agent duplicate booking rejected", code == 409)
 
+# --- wave-3: re-optimization deltas, no-show risk, QR, ACK -------------------
+code, q1 = call("GET", "/api/staff/queue", token=jwt)
+check("queue has eta_delta + risk fields", code == 200 and
+      all("eta_delta" in q for q in q1.get("queue", [])) and
+      any(q.get("risk_band") for q in q1.get("queue", [])))
+
+code, sc2 = call("POST", "/api/staff/scenario/congestion", {}, token=jwt)
+code, q2 = call("GET", "/api/staff/queue", token=jwt)
+deltas = [q.get("eta_delta") for q in q2.get("queue", []) if q.get("eta_delta") is not None]
+check("eta deltas computed on re-optimization", code == 200 and len(deltas) > 0)
+
+code, an3 = call("GET", "/api/staff/anomalies", token=jwt)
+check("dual-layer anomaly scan", code == 200 and an3.get("layers") == ["rules", "isolation-forest"])
+
+code, qr = call("GET", f"/api/farmer/qrcode/{token}")
+check("gate QR endpoint", code == 200 and ("<svg" in str(qr) or "rect" in str(qr)))
+
+code, ack = call("POST", "/api/farmer/alerts/ack", {"token": token})
+check("farmer alert ACK", code == 200 and ack.get("ok"))
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

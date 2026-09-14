@@ -63,6 +63,10 @@ class DisputeIn(BaseModel):
     note: str = ""
 
 
+class AckIn(BaseModel):
+    token: str
+
+
 class BookIn2(BaseModel):
     """Extended booking fields for priority requests."""
 
@@ -369,6 +373,30 @@ def self_checkin(body: SelfCheckInIn):
     return {"ok": True, "token": body.token, "method": "GPS_SELF_CHECKIN",
             "position": mine["position"] if mine else 0,
             "eta_minutes": int(mine["eta_minutes"] or 0) if mine else 0}
+
+
+@router.post("/alerts/ack")
+def ack_alert(body: AckIn):
+    """Farmer acknowledges the leave-home alert (from app or IVR key-press).
+    Stops the escalation ladder."""
+    ticket = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    execute("UPDATE tickets SET alert_ack_at = ? WHERE id = ?", (now_iso(), ticket["id"]))
+    log_event(ticket["mandi_id"], f"FARMER:{ticket['phone']}", "ALERT_ACKED", {"token": body.token}, ticket["id"])
+    return {"ok": True, "token": body.token}
+
+
+@router.get("/qrcode/{token}")
+def qrcode(token: str):
+    """Scannable QR of the token for gate verification (SVG, no deps)."""
+    from .qrcode_svg import qr_svg
+    ticket = query_one("SELECT token FROM tickets WHERE token = ?", (token,))
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    svg = qr_svg(f"MANDIMITRA:{token}")
+    from fastapi import Response
+    return Response(content=svg, media_type="image/svg+xml")
 
 
 @router.post("/dispute")

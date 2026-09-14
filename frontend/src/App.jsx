@@ -134,6 +134,13 @@ function FarmerView({ lang }) {
     return (
       <div className="fade-in">
         {offline && <div className="banner warn">📴 {t.offline}</div>}
+        {status.eta_delta != null && Math.abs(status.eta_delta) >= 1 && (
+          <div className={`banner ${status.eta_delta > 0 ? 'ok-banner' : 'warn'}`}>
+            {status.eta_delta > 0
+              ? `⚡ Queue re-optimized: your wait just dropped ${status.eta_delta} min`
+              : `⏳ Queue updated: wait increased by ${Math.abs(status.eta_delta)} min`}
+          </div>
+        )}
         {leaveNow && <div className="banner alert">🚗 {t.leaveNow} — {t.token} {status.token}</div>}
         {turnSoon && <div className="banner alert">🔔 {t.turnSoon}</div>}
         <Card className="hero">
@@ -147,8 +154,23 @@ function FarmerView({ lang }) {
           </div>
           <div className="grid3">
             <Stat label={t.position} value={isServing ? 'Now' : pos} />
-            <Stat label={t.eta} value={eta === '—' ? '—' : `${eta} min`} />
+            <Stat label={t.eta} value={eta === '—' ? '—' : `${eta} min`}
+                  sub={status.eta_delta != null && status.eta_delta !== 0 ?
+                    (status.eta_delta > 0 ? `⬇ ${status.eta_delta}m faster` : `⬆ ${Math.abs(status.eta_delta)}m slower`) : undefined} />
             <Stat label={t.confidence} value={status.eta_confidence ? `${Math.round(status.eta_confidence * 100)}%` : '—'} />
+          </div>
+          <div className="qr-row">
+            <img src={`/api/farmer/qrcode/${status.token}`} alt="Gate QR" className="qr-img" />
+            <div>
+              <b>Gate pass QR</b>
+              <p className="muted">Show at the entry gate — staff scan or match the code.</p>
+              {status.leave_home_alerted && !status.alert_ack_at && status.status === 'SLOT_BOOKED' && (
+                <button className="mini" onClick={async () => {
+                  await api.post('/farmer/alerts/ack', { token: status.token })
+                  await loadStatus()
+                }}>✓ Acknowledge alert (stop reminders)</button>
+              )}
+            </div>
           </div>
           {status.amount ? (
             <div className="amount-box">
@@ -606,7 +628,13 @@ function StaffView({ lang, onLogout }) {
                 <td>{q.crop} · {q.quantity_kg}kg</td>
                 <td><span className={`stage-badge sm ${q.status.toLowerCase()}`}>{q.status.replace('_', ' ')}</span></td>
                 <td>{q.queue_group === 'SERVING' ? 'now' : q.position}</td>
-                <td>{q.eta_minutes != null ? `${q.eta_minutes}m` : '—'}</td>
+                <td>{q.eta_minutes != null ? `${q.eta_minutes}m` : '—'}
+                  {q.eta_delta != null && Math.abs(q.eta_delta) >= 1 && (
+                    <span className={`delta ${q.eta_delta > 0 ? 'down' : 'up'}`}>{q.eta_delta > 0 ? '⬇' : '⬆'}{Math.abs(q.eta_delta)}</span>
+                  )}
+                  {q.risk_band === 'HIGH' && <span className="risk high" title={(q.risk_reasons || []).join(', ')}>⚠ {Math.round((q.no_show_risk || 0) * 100)}%</span>}
+                  {q.risk_band === 'MEDIUM' && <span className="risk med" title={(q.risk_reasons || []).join(', ')}>{Math.round((q.no_show_risk || 0) * 100)}%</span>}
+                </td>
                 <td className="actions">
                   {q.status === 'SLOT_BOOKED' && <button className="mini" onClick={() => act('/staff/checkin', { token: q.token })}>{t.checkIn}</button>}
                   {q.status === 'ARRIVED' && <button className="mini" onClick={() => act('/staff/start-weighing', { token: q.token })}>{t.weigh}</button>}

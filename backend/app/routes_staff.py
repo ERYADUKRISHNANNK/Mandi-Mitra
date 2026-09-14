@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from . import anomaly, congestion, receipts
+from .anomaly_ml import scan_unsupervised
 from .diversion import recommend_diversion
 from .predictor import train as train_model
 from .audit import log_event
@@ -131,6 +132,8 @@ def _mandi_stats(mandi_id: str) -> dict:
             "ticket_token": token,
         })
     anomaly_scan = anomaly.scan(mandi_id)
+    anomaly_scan["flags"].extend(scan_unsupervised(mandi_id))
+    anomaly_scan["flag_count"] = len(anomaly_scan["flags"])
     return {
         "mandi_id": mandi_id,
         "date": date,
@@ -353,7 +356,12 @@ def notifications(limit: int = 60, user: dict = Depends(staff_auth)):
 
 @router.get("/anomalies")
 def anomalies(user: dict = Depends(staff_auth)):
-    return anomaly.scan(_require_mandi(user))
+    mandi_id = _require_mandi(user)
+    result = anomaly.scan(mandi_id)
+    result["flags"].extend(scan_unsupervised(mandi_id))
+    result["flag_count"] = len(result["flags"])
+    result["layers"] = ["rules", "isolation-forest"]
+    return result
 
 
 @router.get("/bottleneck")

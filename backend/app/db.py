@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS tickets (
     priority            INTEGER NOT NULL DEFAULT 0,
     priority_flag       TEXT,
     dispute_count       INTEGER NOT NULL DEFAULT 0,
+    last_eta_minutes    REAL,
+    prev_eta_minutes    REAL,
+    no_show_risk        REAL,
+    risk_band           TEXT,
+    escalated           INTEGER NOT NULL DEFAULT 0,
+    alert_ack_at        TEXT,
     stage_started_at    TEXT,
     quality_grade       TEXT,
     amount              REAL,
@@ -183,6 +189,12 @@ def init_db():
     for stmt in (
         "ALTER TABLE tickets ADD COLUMN priority_flag TEXT",
         "ALTER TABLE tickets ADD COLUMN dispute_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE tickets ADD COLUMN last_eta_minutes REAL",
+        "ALTER TABLE tickets ADD COLUMN prev_eta_minutes REAL",
+        "ALTER TABLE tickets ADD COLUMN no_show_risk REAL",
+        "ALTER TABLE tickets ADD COLUMN risk_band TEXT",
+        "ALTER TABLE tickets ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE tickets ADD COLUMN alert_ack_at TEXT",
     ):
         try:
             conn.execute(stmt)
