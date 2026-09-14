@@ -1,0 +1,578 @@
+import { useEffect, useRef, useState } from 'react'
+import { api } from './api.js'
+import { STR } from './i18n.js'
+import {
+  connectQueue, getLang, getTicket, getCachedStatus, refreshStatusOfflineAware,
+  saveTicket, setLang,
+} from './state.js'
+
+const CROPS = ['Paddy', 'Wheat', 'Maize']
+const LANGS = [['ml', 'മലയാളം'], ['en', 'English'], ['hi', 'हिंदी'], ['ta', 'தமிழ்']]
+
+function Card({ children, className = '' }) {
+  return <div className={`card ${className}`}>{children}</div>
+}
+
+function Stat({ label, value, sub, tone }) {
+  return (
+    <div className={`stat ${tone || ''}`}>
+      <div className="stat-value">{value}</div>
+      <div className="stat-label">{label}{sub ? ` · ${sub}` : ''}</div>
+    </div>
+  )
+}
+
+// ------------------------------ Farmer PWA --------------------------------- //
+
+function FarmerView({ lang }) {
+  const t = STR[lang]
+  const [mandis, setMandis] = useState([])
+  const [mandiId, setMandiId] = useState('KL-KOCHI-01')
+  const [crop, setCrop] = useState('Paddy')
+  const [qty, setQty] = useState(500)
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [slots, setSlots] = useState(null)
+  const [chosen, setChosen] = useState(null)
+  const [ticket, setTicket] = useState(getTicket())
+  const [status, setStatus] = useState(null)
+  const [offline, setOffline] = useState(false)
+  const [error, setError] = useState('')
+  const [notifCount, setNotifCount] = useState(0)
+  const wsRef = useRef(null)
+
+  useEffect(() => {
+    api.get('/farmer/mandis').then((d) => setMandis(d.mandis)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!mandiId) return
+    api.get(`/farmer/slots?mandi_id=${mandiId}&quantity_kg=${qty}`).then((d) => {
+      setSlots(d)
+      setChosen(d.options?.[0] || null)
+    }).catch(() => {})
+  }, [mandiId, qty])
+
+  const loadStatus = async (tk = ticket) => {
+    if (!tk) return
+    const { status: s, offline: off } = await refreshStatusOfflineAware(tk)
+    setStatus(s)
+    setOffline(off)
+  }
+
+  useEffect(() => { loadStatus() /* eslint-disable-line */ }, [ticket?.token])
+
+  // Live queue updates via WebSocket.
+  useEffect(() => {
+    if (!status?.mandi_id) return
+    wsRef.current?.close()
+    wsRef.current = connectQueue(status.mandi_id, (evt) => {
+      if (evt.type === 'queue_update') loadStatus() /* eslint-disable-line */
+    })
+    return () => wsRef.current?.close()
+  }, [status?.mandi_id]) // eslint-disable-line
+
+  // Gentle polling fallback (also powers offline banner).
+  useEffect(() => {
+    const iv = setInterval(() => { if (ticket) loadStatus() }, 15000)
+    return () => clearInterval(iv)
+  }, [ticket]) // eslint-disable-line
+
+  const book = async () => {
+    setError('')
+    try {
+      const b = await api.post('/farmer/book', {
+        mandi_id: mandiId, phone, farmer_name: name || 'Farmer',
+        crop, quantity_kg: Number(qty), slot_time: chosen.slot_time, lang,
+      })
+      const tk = { token: b.token, phone: b.phone }
+      saveTicket(tk.token, tk.phone)
+      setTicket(tk)
+      await loadStatus(tk)
+    } catch (e) { setError(e.message) }
+  }
+
+
+  const notifications = async () => {
+    if (!ticket) return
+    const d = await api.get(`/farmer/notifications?phone=${ticket.phone}`)
+    alert(d.notifications.map((n) => `[${n.channel}] ${n.body}`).join('\n') || 'No messages yet')
+  }
+  useEffect(() => { if (status) setNotifCount((c) => c + 1) }, [status?.status]) // eslint-disable-line
+
+  if (ticket && status) {
+    const pos = status.position ?? '—'
+    const eta = status.eta_minutes ?? '—'
+    const isServing = status.queue_group === 'SERVING' || ['WEIGHING', 'QUALITY_CHECK', 'PAYMENT'].includes(status.status)
+    const leaveNow = status.leave_home_alerted && status.status === 'SLOT_BOOKED'
+    const turnSoon = status.turn_soon_alerted && status.status === 'ARRIVED'
+    return (
+      <div className="fade-in">
+        {offline && <div className="banner warn">📴 {t.offline}</div>}
+        {leaveNow && <div className="banner alert">🚗 {t.leaveNow} — {t.token} {status.token}</div>}
+        {turnSoon && <div className="banner alert">🔔 {t.turnSoon}</div>}
+        <Card className="hero">
+          <div className="token-row">
+            <div>
+              <div className="token-label">{t.token}</div>
+              <div className="token">{status.token}</div>
+              <div className="muted">{status.mandi_name}</div>
+            </div>
+            <div className="stage-badge">{status.status.replace('_', ' ')}</div>
+          </div>
+          <div className="grid3">
+            <Stat label={t.position} value={isServing ? 'Now' : pos} />
+            <Stat label={t.eta} value={eta === '—' ? '—' : `${eta} min`} />
+            <Stat label={t.confidence} value={status.eta_confidence ? `${Math.round(status.eta_confidence * 100)}%` : '—'} />
+          </div>
+          {status.amount ? (
+            <div className="amount-box">
+              <span>₹{status.amount.toLocaleString('en-IN')}</span>
+              <span className="muted"> {t.payment}: {status.payment_status}</span>
+              {status.payment_status === 'DELAYED' && <span className="warn-text"> ⚠ delay detected</span>}
+            </div>
+          ) : null}
+        </Card>
+
+        <Card>
+          <h3>🧭 {t.timeline}</h3>
+          <Timeline events={status.timeline || []} />
+        </Card>
+
+        {status.status === 'COMPLETED' && <ReceiptBox token={status.token} t={t} />}
+
+        <div className="row-btns">
+          <button className="ghost" onClick={notifications}>💬 {t.notifications}</button>
+          <button className="ghost" onClick={() => { localStorage.removeItem('mm_ticket'); setTicket(null); setStatus(null) }}>↺ New booking</button>
+        </div>
+        <p className="muted center">{t.bookBySms}</p>
+        {notifCount < 0 && <span />}
+      </div>
+    )
+  }
+
+  return (
+    <div className="fade-in">
+      <Card className="hero">
+        <h2>🌾 {t.book}</h2>
+        <label>{t.mandi}</label>
+        <select value={mandiId} onChange={(e) => setMandiId(e.target.value)}>
+          {mandis.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name} · {m.congestion === 'HIGH' ? '🔴' : m.congestion === 'MODERATE' ? '🟡' : '🟢'} {m.queue_length} waiting
+            </option>
+          ))}
+        </select>
+        <div className="grid2">
+          <div>
+            <label>{t.crop}</label>
+            <select value={crop} onChange={(e) => setCrop(e.target.value)}>
+              {CROPS.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>{t.qty}</label>
+            <input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
+          </div>
+        </div>
+        <label>{t.name}</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rajan Kumar" />
+        <label>📱 Mobile number</label>
+        <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+               placeholder="9876500000" inputMode="numeric" />
+        {!phone && <p className="muted">Booking confirmation and SMS/IVR alerts go to this number.</p>}
+      </Card>
+
+      {slots && (
+        <Card>
+          <h3>🤖 {t.slot} — AI recommendations</h3>
+          <div className="slot-list">
+            {slots.options.slice(0, 5).map((o) => (
+              <button key={o.slot_time} className={`slot ${chosen?.slot_time === o.slot_time ? 'sel' : ''}`}
+                      onClick={() => setChosen(o)}>
+                <span className="slot-time">🕐 {o.slot_time}</span>
+                <span className="muted">wait ~{o.expected_wait_min}m · {o.queue_ahead} ahead</span>
+                {o.recommended && <span className="pill">★ {t.recommended} {Math.round(o.confidence * 100)}%</span>}
+              </button>
+            ))}
+          </div>
+          <button className="primary big" onClick={book} disabled={!chosen || phone.length !== 10}>{t.confirmBooking}</button>
+          {error && <p className="error">{error}</p>}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+const STAGE_ORDER = ['BOOKING_CREATED', 'ARRIVAL_VERIFIED', 'WEIGHING', 'QUALITY_CHECK', 'PROCUREMENT_APPROVED', 'PAYMENT_COMPLETED']
+
+function Timeline({ events }) {
+  const actions = events.map((e) => e.action)
+  return (
+    <div className="timeline">
+      {STAGE_ORDER.map((stage) => {
+        const evt = events.filter((e) => e.action === stage).slice(-1)[0]
+        const done = actions.includes(stage)
+        const isLast = actions.indexOf(stage) === actions.length - 1
+        return (
+          <div key={stage} className={`tl-step ${done ? 'done' : ''} ${done && isLast ? 'current' : ''}`}>
+            <div className="tl-dot">{done ? '✓' : '•'}</div>
+            <div>
+              <div className="tl-name">{stage.replace(/_/g, ' ')}</div>
+              {evt && <div className="tl-ts">{evt.ts.replace('T', ' ').slice(0, 16)} · {evt.actor}</div>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ReceiptBox({ token, t }) {
+  const [rec, setRec] = useState(null)
+  useEffect(() => {
+    api.get(`/farmer/receipt/${token}`).then(setRec).catch(() => {})
+  }, [token])
+  if (!rec) return null
+  const p = rec.receipt.payload
+  return (
+    <Card>
+      <h3>🧾 {t.receipt}</h3>
+      <div className="receipt">
+        <div className="receipt-row"><span>Token</span><b>{p.token}</b></div>
+        <div className="receipt-row"><span>Crop</span><span>{p.crop} · Grade {p.quality_grade}</span></div>
+        <div className="receipt-row"><span>Quantity</span><span>{p.quantity_kg} kg</span></div>
+        <div className="receipt-row"><span>Amount</span><b>₹{p.amount.toLocaleString('en-IN')}</b></div>
+        <div className="receipt-hash">hash {rec.receipt.hash.slice(0, 24)}…</div>
+      </div>
+      {rec.chain_verified && <p className="ok-text">🔗 {t.chainVerified}</p>}
+    </Card>
+  )
+}
+
+// ------------------------------ Staff view --------------------------------- //
+
+function StaffView({ lang, onLogout }) {
+  const t = STR[lang]
+  const [jwt, setJwt] = useState(sessionStorage.getItem('mm_jwt') || '')
+  const [u, setU] = useState(sessionStorage.getItem('mm_user') || 'staff1')
+  const [p, setP] = useState('')
+  const [dash, setDash] = useState(null)
+  const [queue, setQueue] = useState(null)
+  const [bott, setBott] = useState(null)
+  const [anom, setAnom] = useState(null)
+  const [err, setErr] = useState('')
+
+  const load = async () => {
+    try {
+      const [d, q, b, a] = await Promise.all([
+        api.get('/staff/dashboard', jwt),
+        api.get('/staff/queue', jwt),
+        api.get('/staff/bottleneck', jwt),
+        api.get('/staff/anomalies', jwt),
+      ])
+      setDash(d); setQueue(q); setBott(b); setAnom(a); setErr('')
+    } catch (e) { setErr(e.message) }
+  }
+
+  useEffect(() => {
+    if (!jwt) return
+    load() // eslint-disable-line
+    const iv = setInterval(load, 8000)
+    return () => clearInterval(iv)
+  }, [jwt]) // eslint-disable-line
+
+  const login = async () => {
+    setErr('')
+    try {
+      const r = await api.post('/staff/login', { username: u, password: p })
+      setJwt(r.access_token)
+      sessionStorage.setItem('mm_jwt', r.access_token)
+      sessionStorage.setItem('mm_user', u)
+    } catch (e) { setErr(e.message) }
+  }
+
+  const act = async (path, body) => {
+    try { await api.post(path, body, jwt); await load() } catch (e) { setErr(e.message) }
+  }
+
+  if (!jwt) {
+    return (
+      <Card className="hero narrow fade-in">
+        <h2>🔐 {t.staffLogin}</h2>
+        <label>{t.username}</label>
+        <input value={u} onChange={(e) => setU(e.target.value)} />
+        <label>{t.password}</label>
+        <input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="staff123" />
+        <button className="primary big" onClick={login}>{t.staffLogin}</button>
+        {err && <p className="error">{err}</p>}
+        <p className="muted">demo: staff1/staff123 (mandi) · admin/admin123 (district)</p>
+      </Card>
+    )
+  }
+
+  const fc = dash?.congestion_forecast?.hours || []
+  return (
+    <div className="fade-in">
+      <div className="row-btns spread">
+        <h2>🖥 {t.dashboard} — {dash?.mandi_id}</h2>
+        <div>
+          <button className="ghost" onClick={() => act('/staff/autopilot', { steps: 4 })}>▶ {t.autopilot}</button>
+          <button className="ghost" onClick={() => act('/staff/ivr-broadcast', { lang })}>📣 IVR broadcast</button>
+          <button className="ghost" onClick={() => { sessionStorage.clear(); onLogout() }}>⎋</button>
+        </div>
+      </div>
+      {err && <p className="error">{err}</p>}
+      {dash && (
+        <div className="grid4">
+          <Stat label={t.queue} value={dash.queue_length} tone="warn" />
+          <Stat label="Avg wait" value={`${dash.avg_wait_minutes}m`} />
+          <Stat label="Processed" value={dash.processed_today} tone="ok" />
+          <Stat label="No-shows" value={dash.no_shows} />
+          <Stat label="Payments pending" value={dash.payments_pending} tone={dash.payments_pending ? 'warn' : ''} />
+          <Stat label="Delayed" value={dash.payments_delayed} tone={dash.payments_delayed ? 'bad' : ''} />
+          <Stat label="Procured today" value={`₹${(dash.amount_today / 1000).toFixed(1)}k`} tone="ok" />
+          <Stat label="Anomaly flags" value={dash.anomaly_flags} tone={dash.anomaly_flags ? 'bad' : ''} />
+        </div>
+      )}
+
+      {fc.length > 0 && (
+        <Card>
+          <h3>📈 {t.forecast}</h3>
+          <div className="forecast">
+            {fc.map((h) => (
+              <div key={h.hour} className="fc-col">
+                <div className={`fc-bar ${h.level.toLowerCase()}`} style={{ height: 8 + h.expected_arrivals * 4 }} />
+                <span>{h.label.slice(0, 2)}</span>
+                <span className={`fc-dot ${h.level.toLowerCase()}`} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <div className="grid2">
+        <Card>
+          <h3>🚦 {t.counters}</h3>
+          {dash?.counters.map((c) => (
+            <div key={c.id} className="counter-row">
+              <span className={`counter ${c.is_active ? (c.ticket_token ? 'busy' : 'idle') : 'off'}`}>
+                {c.code} · {c.type === 'WEIGHING' ? '⚖' : '🔍'} {c.ticket_token || (c.is_active ? 'free' : 'offline')}
+              </span>
+              <button className="mini" onClick={() => act('/staff/counter', { counter_id: c.id, is_active: !c.is_active })}>
+                {c.is_active ? 'Take offline' : 'Bring online'}
+              </button>
+            </div>
+          ))}
+          {bott && (
+            <div className="advice">
+              <h4>🤖 {t.bottleneck}</h4>
+              {bott.recommendations.length === 0 && <p className="muted">All good — no action needed.</p>}
+              {bott.recommendations.map((r, i) => <p key={i} className="advice-line">→ {r}</p>)}
+            </div>
+          )}
+        </Card>
+        <Card>
+          <h3>🚨 {t.anomalies} ({anom?.flag_count ?? 0})</h3>
+          {anom?.flags.length === 0 && <p className="muted">No anomalies detected.</p>}
+          {anom?.flags.map((f, i) => (
+            <div key={i} className={`anomaly sev-${f.severity.toLowerCase()}`}>
+              <b>{f.type}</b> — {f.detail}
+              <div className="muted">{f.recommendation}</div>
+            </div>
+          ))}
+        </Card>
+      </div>
+
+      <Card>
+        <h3>📋 {t.queue}</h3>
+        <table className="queue-table">
+          <thead>
+            <tr><th>Token</th><th>Farmer</th><th>Crop</th><th>Status</th><th>Pos</th><th>ETA</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            {(queue?.queue || []).map((q) => (
+              <tr key={q.ticket_id}>
+                <td><b>{q.token}</b>{q.priority < 0 ? ' ↩' : ''}</td>
+                <td>{q.farmer_name}</td>
+                <td>{q.crop} · {q.quantity_kg}kg</td>
+                <td><span className={`stage-badge sm ${q.status.toLowerCase()}`}>{q.status.replace('_', ' ')}</span></td>
+                <td>{q.queue_group === 'SERVING' ? 'now' : q.position}</td>
+                <td>{q.eta_minutes != null ? `${q.eta_minutes}m` : '—'}</td>
+                <td className="actions">
+                  {q.status === 'SLOT_BOOKED' && <button className="mini" onClick={() => act('/staff/checkin', { token: q.token })}>{t.checkIn}</button>}
+                  {q.status === 'ARRIVED' && <button className="mini" onClick={() => act('/staff/start-weighing', { token: q.token })}>{t.weigh}</button>}
+                  {q.status === 'WEIGHING' && <button className="mini" onClick={() => act('/staff/start-quality', { token: q.token })}>{t.quality}</button>}
+                  {q.status === 'QUALITY_CHECK' && <button className="mini" onClick={() => act('/staff/complete-procurement', { token: q.token, quality_grade: 'A' })}>{t.approve}</button>}
+                  {q.status === 'PAYMENT' && q.payment_status !== 'COMPLETED' && <button className="mini" onClick={() => act('/staff/complete-payment', { token: q.token })}>{t.pay}</button>}
+                  {['SLOT_BOOKED', 'ARRIVED'].includes(q.status) && <button className="mini danger" onClick={() => act('/staff/no-show', { token: q.token, requeue: false })}>{t.checkout}</button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  )
+}
+
+// ------------------------------ Admin view --------------------------------- //
+
+function AdminView({ lang }) {
+  const t = STR[lang]
+  const [jwt, setJwt] = useState(sessionStorage.getItem('mm_jwt') || '')
+  const [u, setU] = useState('admin')
+  const [p, setP] = useState('')
+  const [cc, setCc] = useState(null)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    if (!jwt) return
+    const load = () => api.get('/admin/command-centre', jwt).then(setCc).catch((e) => setErr(e.message))
+    load()
+    const iv = setInterval(load, 10000)
+    return () => clearInterval(iv)
+  }, [jwt])
+
+  const login = async () => {
+    try {
+      const r = await api.post('/staff/login', { username: u, password: p })
+      setJwt(r.access_token); sessionStorage.setItem('mm_jwt', r.access_token)
+    } catch (e) { setErr(e.message) }
+  }
+
+  if (!jwt) {
+    return (
+      <Card className="hero narrow fade-in">
+        <h2>🗺 {t.commandCentre}</h2>
+        <label>{t.username}</label><input value={u} onChange={(e) => setU(e.target.value)} />
+        <label>{t.password}</label><input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="admin123" />
+        <button className="primary big" onClick={login}>Login</button>
+        {err && <p className="error">{err}</p>}
+      </Card>
+    )
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="row-btns spread">
+        <h2>🗺 {t.commandCentre}</h2>
+        <button className="ghost" onClick={() => { sessionStorage.clear(); setJwt('') }}>⎋</button>
+      </div>
+      {cc && (
+        <>
+          <div className="grid4">
+            <Stat label="Mandis monitored" value={cc.mandis_monitored} />
+            <Stat label="🟢 Normal" value={cc.normal} tone="ok" />
+            <Stat label="🟡 Moderate" value={cc.moderate} tone="warn" />
+            <Stat label="🔴 Congested" value={cc.congested} tone={cc.congested ? 'bad' : ''} />
+            <Stat label="Farmers today" value={cc.totals.farmers_today} />
+            <Stat label="Completed" value={cc.totals.completed} tone="ok" />
+            <Stat label="Pending payments" value={cc.totals.pending_payments} tone={cc.totals.pending_payments ? 'warn' : ''} />
+            <Stat label="Receipt chain" value={cc.receipt_chain.verified ? '✅ verified' : '⚠ broken'} tone={cc.receipt_chain.verified ? 'ok' : 'bad'} />
+          </div>
+          <MandiMap centres={cc.centres} />
+          <Card>
+            <h3>Centres</h3>
+            <table className="queue-table">
+              <thead><tr><th>Mandi</th><th>Queue</th><th>Avg wait</th><th>Processed</th><th>Congestion</th><th>Anomalies</th></tr></thead>
+              <tbody>
+                {cc.centres.map((c) => (
+                  <tr key={c.mandi_id}>
+                    <td><b>{c.name}</b><div className="muted">{c.district}</div></td>
+                    <td>{c.queue_length}</td>
+                    <td>{c.avg_wait}m</td>
+                    <td>{c.processed_today}</td>
+                    <td>{c.congestion === 'HIGH' ? '🔴' : c.congestion === 'MODERATE' ? '🟡' : '🟢'} {c.congestion}</td>
+                    <td>{c.anomaly_flags || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+// Lightweight map: plots mandi dots on a Leaflet map when CDN is reachable,
+// with a clean CSS fallback grid when offline.
+function MandiMap({ centres }) {
+  const ref = useRef(null)
+  const [cdnOk, setCdnOk] = useState(false)
+
+  useEffect(() => {
+    let map
+    const css = document.createElement('link'); css.rel = 'stylesheet'
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(css)
+    const js = document.createElement('script')
+    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    js.onload = () => {
+      setCdnOk(true)
+      if (!ref.current) return
+      map = window.L.map(ref.current).setView([10.4, 76.3], 8)
+      window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map)
+      centres.forEach((c) => {
+        const color = c.congestion === 'HIGH' ? '#d93025' : c.congestion === 'MODERATE' ? '#f9ab00' : '#188038'
+        window.L.circleMarker([c.lat, c.lng], { radius: 14 + c.queue_length, color, fillColor: color, fillOpacity: 0.5 })
+          .addTo(map)
+          .bindPopup(`<b>${c.name}</b><br/>Queue: ${c.queue_length} · ${c.congestion}<br/>Avg wait: ${c.avg_wait}m`)
+      })
+    }
+    js.onerror = () => setCdnOk(false)
+    document.head.appendChild(js)
+    return () => { map?.remove?.() }
+  }, [centres])
+
+  return (
+    <Card>
+      <h3>📍 Mandi congestion map</h3>
+      <div ref={ref} className="map" style={{ display: cdnOk ? 'block' : 'none' }} />
+      {!cdnOk && (
+        <div className="map-fallback">
+          {centres.map((c) => (
+            <div key={c.mandi_id} className={`map-chip ${c.congestion.toLowerCase()}`}>
+              {c.congestion === 'HIGH' ? '🔴' : c.congestion === 'MODERATE' ? '🟡' : '🟢'} <b>{c.name}</b> — {c.queue_length} in queue
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ------------------------------ Shell --------------------------------------- //
+
+export default function App() {
+  const [lang, setL] = useState(getLang())
+  const [view, setView] = useState('farmer')
+  const t = STR[lang]
+
+  return (
+    <div className="app">
+      <header>
+        <div className="brand" onClick={() => setView('farmer')}>
+          🌾 <b>{t.appName}</b> <span className="tagline">{t.tagline}</span>
+        </div>
+        <nav>
+          {['farmer', 'staff', 'admin'].map((v) => (
+            <button key={v} className={`nav-btn ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>
+              {v === 'farmer' ? '👨‍🌾 Farmer' : v === 'staff' ? '🖥 Staff' : '🗺 Admin'}
+            </button>
+          ))}
+          <select className="lang-sel" value={lang} onChange={(e) => { setL(e.target.value); setLang(e.target.value) }}>
+            {LANGS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          </select>
+        </nav>
+      </header>
+      <main>
+        {view === 'farmer' && <FarmerView key={'f' + lang} lang={lang} />}
+        {view === 'staff' && <StaffView lang={lang} onLogout={() => setView('farmer')} />}
+        {view === 'admin' && <AdminView lang={lang} />}
+      </main>
+      <footer>Mandi Mitra · SIH prototype · simulated SMS/IVR & payment gateways</footer>
+    </div>
+  )
+}
