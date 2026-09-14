@@ -28,6 +28,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | District command centre | ✅ working | Leaflet map, congestion status, receipt-chain health, district totals |
 | Offline-first PWA | ✅ working | Service worker caches last status; offline banner |
 | Demo autopilot | ✅ working | One click simulates arrivals & stage progression for judging |
+| **Demo controls everywhere** | ✅ working | Farmer: sample copilot prompts + 1-tap demo booking · Staff: 🎬 1-click demo (scenario + autopilot) · Admin: 🎬 District demo (congestion + movement in every centre + prevention sweep) |
 | **Smart diversion (load balancing)** | ✅ working | Congested mandi? Suggests a nearby centre with real distances, drive time & fuel cost — farmer decides |
 | GPS self check-in | ✅ working | Farmer checks in from the PWA geofence (2.5 km) — no desk queue |
 | Priority inclusion | ✅ working | Elderly / differently-abled / small-holder precedence at booking and walk-in |
@@ -110,11 +111,11 @@ Or double-click **`start_all.bat`** (Windows).
 
 ## 🎬 5-minute demo script
 
-1. **Farmer books (1 min)** — open the PWA in Malayalam, pick Kochi, 500 kg paddy → AI recommends "12:30 · wait ~4m · 92% confidence". Book. Token + position + ETA appear instantly; the **Leave-home banner** fires on its own as ETA crosses the threshold. Show the SMS log ("💬 SMS / IVR alerts").
+1. **Farmer books (1 min)** — open the PWA in Malayalam and tap a **💬 sample prompt** ("I have 20 bags of paddy for today 3 pm") → the copilot answers with one plan. Or tap **🎬 1-tap demo booking** for an instant live token. The **Leave-home banner** and departure advisor fire on their own.
 2. **Feature-phone parity (30 sec)** — `POST /api/sms {"phone":"…","message":"BOOK KL-KOCHI-01 WHEAT 700"}` and `POST /api/missed-call` → instant Malayalam IVR status. No app needed.
-3. **Staff dashboard (1.5 min)** — login staff1. Point at **AI recommendation**: "C2 idle while N farmers wait — allocate staff now". Run **autopilot**: watch the queue move stage-by-stage in real time, ETAs shrinking, timeline filling.
+3. **Staff dashboard (1.5 min)** — login staff1 → **🎬 1-click demo** (scenario + autopilot): the queue moves stage-by-stage in real time, ETAs shrink live, SLA banner turns red. Point at the AI recommendations, twin and heatmap as they light up.
 4. **Transparency (1 min)** — complete a farmer's journey → receipt with **hash + chain verified ✅**; show admin **audit trail** per token.
-5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
+5. **Command centre (1 min)** — login admin → **🎬 District demo**: congestion + live movement in every centre + prevention sweep in one click; the map turns red where it matters. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
 
 **Wave-5 demo beats (pick 1–2):** run the **Digital Twin** ("×2 arrivals, 2 counters → projected peak queue 14") before opening a counter; fire the **⚡ Congestion scenario** and watch the copilot briefing, SLA banner and heatmap turn red together; use **voice booking** ("book tomorrow at the nearest mandi" → AI proposal → explicit confirm); open **Daily report** for the auto-generated bottleneck recommendation.
 

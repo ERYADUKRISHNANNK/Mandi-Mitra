@@ -305,6 +305,30 @@ def notifications(phone: str):
     return {"phone": phone, "count": len(rows), "notifications": [dict(r) for r in rows]}
 
 
+class DemoBookIn(BaseModel):
+    lang: str = "ml"
+    lat: float | None = None
+    lng: float | None = None
+
+
+@router.post("/demo/book")
+def demo_book_ep(body: DemoBookIn):
+    """One-tap demo booking for judges: books a realistic paddy lot at the
+    AI-recommended centre with a sensible slot, returns a live token."""
+    from .discovery import best_for_me
+    import random as _r
+    phone = f"9{_r.randint(100000000, 999999999)}"
+    bfm = best_for_me(body.lat if body.lat is not None else 10.52,
+                      body.lng if body.lng is not None else 76.21, "Paddy", 500)
+    rec = bfm.get("recommended")
+    if not rec:
+        raise HTTPException(status_code=409, detail="No open centres")
+    slot = "14:00" if rec["queue_length"] < 20 else "16:00"
+    return book(BookIn(mandi_id=rec["mandi_id"], phone=phone,
+                       farmer_name=f"Demo Farmer {phone[-4:]}", crop="Paddy",
+                       quantity_kg=500, slot_time=slot, lang=body.lang or "ml"))
+
+
 @router.post("/ivr/call")
 def ivr_call(body: IvrIn):
     """Simulated IVR: farmer dials in, system speaks the live status."""

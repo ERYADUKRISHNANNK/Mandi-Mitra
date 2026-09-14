@@ -390,6 +390,18 @@ function FarmerView({ lang }) {
       <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
       <Card className="hero copilot">
         <h3>🧠 {lang === 'ml' ? 'എവിടെയാണ് ഇന്ന് വേഗം?' : 'Where should I sell today?'}</h3>
+        <div className="row-btns" style={{ marginBottom: 6 }}>
+          {["I have 20 bags of paddy for today 3 pm", "എനിക്ക് ഇന്ന് 10 സഞ്ചി നെല്ല് വേണം", "Where is the queue shortest for 500 kg wheat?"].map((s) => (
+            <button key={s} className="mini" onClick={() => { setCopilotText(s); askCopilot(s) }}>💬 {s.slice(0, 28)}…</button>
+          ))}
+          <button className="ghost" onClick={async () => {
+            try {
+              const b = await api.post('/farmer/demo/book', { lang })
+              saveTicket(b.token, b.phone); setTicket({ token: b.token, phone: b.phone })
+              await loadStatus({ token: b.token, phone: b.phone })
+            } catch (e) { setError(e.message) }
+          }}>🎬 1-tap demo booking</button>
+        </div>
         <p className="muted">Just say it in your own words — the copilot does the rest.</p>
         <div className="grid2">
           <input value={copilotText} onChange={(e) => setCopilotText(e.target.value)}
@@ -716,6 +728,13 @@ function StaffView({ lang, onLogout }) {
                   style={{ display: 'none' }} />
           <a className="ghost" href="/api/staff/report/daily.csv" download>📄 Daily CSV</a>
           <button className="ghost" onClick={() => act('/staff/scenario/congestion', {})}>⚡ Congestion scenario</button>
+          <button className="ghost" onClick={async () => {
+            try {
+              const r = await api.post('/staff/demo/full', {}, jwt)
+              alert(`🎬 Demo loaded: ${r.actions} actions — autopilot moved the queue, ETAs updated live`)
+              await load()
+            } catch (e) { setErr(e.message) }
+          }}>🎬 1-click demo</button>
           <button className="ghost" onClick={async () => {
             try {
               const r = await api.post('/staff/prevention-sweep', {}, jwt)
@@ -1099,7 +1118,15 @@ function AdminView({ lang }) {
     <div className="fade-in">
       <div className="row-btns spread">
         <h2>🗺 {t.commandCentre}</h2>
-        <button className="ghost" onClick={() => { sessionStorage.clear(); setJwt('') }}>⎋</button>
+        <div>
+          <button className="ghost" onClick={async () => {
+            try {
+              const r = await api.post('/admin/demo/district', {}, jwt)
+              alert(`🎬 District demo loaded: congestion + live movement in every centre · ${r.farmers_warned} at-home farmer(s) warned by the prevention sweep`)
+            } catch (e) { setErr(e.message) }
+          }}>🎬 District demo</button>
+          <button className="ghost" onClick={() => { sessionStorage.clear(); setJwt('') }}>⎋</button>
+        </div>
       </div>
       {cc && (
         <>

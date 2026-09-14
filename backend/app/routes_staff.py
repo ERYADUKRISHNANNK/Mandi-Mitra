@@ -487,6 +487,24 @@ def network_brain_ep(user: dict = Depends(admin_auth)):
     return network_brain()
 
 
+@admin_router.post("/demo/district")
+def district_demo(user: dict = Depends(admin_auth)):
+    """One click fills the WHOLE district for the judging demo: congestion
+    scenario + live activity in every mandi, then a prevention sweep."""
+    from .plan import run_prevention_sweep
+    summary = []
+    for m in query("SELECT id, name FROM mandis"):
+        scoped = {**user, "mandi_id": m["id"]}  # autopilot re-checks mandi scope internally
+        sc = scenario_congestion(ScenarioIn(mandi_id=m["id"]), scoped)
+        ap = autopilot(AutoIn(steps=3, mandi_id=m["id"]), scoped)
+        summary.append({"mandi": m["name"], "scenario": sc["ok"],
+                        "actions": len(ap["actions"])})
+    prev = run_prevention_sweep()
+    return {"ok": True, "mandis": summary,
+            "farmers_warned": prev["farmers_warned"],
+            "note": "District demo loaded: congestion, live movement and prevention across all centres."}
+
+
 @admin_router.get("/national-heatmap")
 def national_heatmap_ep(user: dict = Depends(admin_auth)):
     """National view: congestion, volumes, payment delays, grievances per centre."""
@@ -1064,6 +1082,17 @@ def emergency_mode(body: EmergencyIn, user: dict = Depends(staff_auth)):
 
 
 # --------------------------- demo autopilot ------------------------------- #
+
+@router.post("/demo/full")
+def demo_full(user: dict = Depends(staff_auth)):
+    """One-click demo: congestion scenario + several autopilot steps so the
+    queue visibly moves stage-by-stage with live ETA updates."""
+    mandi_id = _require_mandi(user)
+    scenario_congestion(ScenarioIn(mandi_id=mandi_id), user)
+    ap = autopilot(AutoIn(steps=5, mandi_id=mandi_id), user)
+    return {"ok": True, "actions": ap["actions"],
+            "note": "Scenario + autopilot combined — watch the queue move and ETAs update live."}
+
 
 @router.post("/autopilot")
 def autopilot(body: AutoIn, user: dict = Depends(staff_auth)):
