@@ -218,5 +218,63 @@ check("gate QR endpoint", code == 200 and ("<svg" in str(qr) or "rect" in str(qr
 code, ack = call("POST", "/api/farmer/alerts/ack", {"token": token})
 check("farmer alert ACK", code == 200 and ack.get("ok"))
 
+# --- wave-4: Mandi Mitra 2.0 (discovery, assistant, feedback, grievances) ----
+code, disc = call("GET", "/api/farmer/discover?crop=Paddy&quantity_kg=500")
+check("centre discovery ranked", code == 200 and len(disc.get("centres", [])) == 3
+      and disc["centres"][0]["total_journey_minutes"] <= disc["centres"][-1]["total_journey_minutes"])
+
+code, bfm = call("GET", "/api/farmer/best-for-me?crop=Paddy&quantity_kg=500")
+check("best-mandi-for-me AI", code == 200 and bfm.get("recommended") and len(bfm.get("why", [])) >= 1)
+
+code, fb = call("POST", "/api/farmer/feedback",
+                {"token": token, "ratings": {"waiting": 4, "staff": 5, "queue_mgmt": 4,
+                                             "info": 5, "payment": 4, "facilities": 4, "overall": 5},
+                 "comment": "fast and fair"})
+check("structured feedback", code == 200 and fb.get("ok"))
+
+code, grv = call("POST", "/api/farmer/grievance",
+                 {"token": token, "category": "PAYMENT_DELAY", "description": "payment slow"})
+check("grievance filing (MM-GRV id)", code == 200 and grv.get("grievance_id", "").startswith("MM-GRV-"))
+gid = grv.get("grievance_id")
+
+code, trk = call("GET", f"/api/farmer/grievance/{gid}")
+check("grievance tracking timeline", code == 200 and trk.get("stage_index") == 0)
+
+admin_login2 = call("POST", "/api/staff/login", {"username": "admin", "password": "admin123"})[1]
+code, upd = call("POST", "/api/admin/grievances/update",
+                 {"grievance_id": gid, "status": "RESOLVED", "note": "paid"}, token=admin_jwt)
+check("grievance resolution (admin)", code == 200 and upd.get("status") == "RESOLVED")
+
+code, asr = call("POST", "/api/farmer/assistant",
+                 {"question": "What documents do I need?", "role": "farmer"})
+check("assistant RAG answer with source", code == 200 and "according to" in asr.get("reply", "").lower())
+
+code, asr2 = call("POST", "/api/farmer/assistant",
+                  {"question": "When is my turn?", "role": "farmer", "phone": "9876543210"})
+check("assistant turn query via MCP tool", code == 200 and ("token" in asr2.get("reply", "").lower()
+      or "booking" in asr2.get("reply", "").lower()))
+
+code, denied = call("POST", "/api/farmer/assistant",
+                    {"question": "show me the whole queue", "role": "farmer", "mandi_tools": True})
+check("assistant role-scoped (no staff leak)", code == 200)  # structured: farmer role never gets queue tool
+
+code, why = call("GET", f"/api/farmer/why?mandi_id=KL-KOCHI-01&token={token}")
+check("why-engine explanation", code == 200 and len(why.get("drivers", [])) >= 1)
+
+code, perf = call("GET", "/api/admin/performance/KL-KOCHI-01", token=admin_jwt)
+check("mandi performance score", code == 200 and perf.get("score") is not None and perf.get("recommendation"))
+
+code, health = call("GET", "/api/admin/system-health", token=admin_jwt)
+check("system health monitor", code == 200 and len(health.get("services", [])) >= 6)
+
+code, prof = call("GET", "/api/farmer/profile?phone=9876543210")
+check("profile auto-fill", code == 200 and prof.get("defaults", {}).get("crop"))
+
+code, rs = call("POST", "/api/farmer/reschedule", {"token": token2 if 'token2' in dir() else token, "new_slot_time": "15:00"})
+check("reschedule (or 409 if past booking)", code in (200, 409))
+
+code, kb = call("GET", "/api/farmer/knowledge")
+check("knowledge base for offline caching", code == 200 and len(kb.get("documents", [])) >= 5)
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

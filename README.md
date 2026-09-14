@@ -1,8 +1,8 @@
-# 🌾 Mandi Mitra — Smart Procurement Queue & Visibility System
+# 🌾 Mandi Mitra 2.0 — AI-Powered National Smart Procurement Network
 
-**Know your turn. Reach when it matters.**
+**Know the Mandi. Know your Turn. Know your Payment.**
 
-A working full-stack prototype built for Smart India Hackathon (SIH26032): farmers no longer wait blindly at MSP procurement centres. Mandi Mitra converts a static token queue into an intelligent, predictive and transparent procurement system — farmers know *when* to arrive, staff know *where* the bottleneck is, and officials get *visibility* across every centre.
+A working full-stack prototype for Smart India Hackathon (SIH26032), evolved from a queue-visibility system into a **national intelligent procurement platform**: farmers discover and compare nearby centres, get AI "Best Mandi For Me" recommendations, book through five access modes, receive predictive turn/departure alerts, and track procurement + payment end-to-end — while staff, district and national administrators get role-scoped operational intelligence. Offline-first, multilingual (en/ml/hi/ta), and grounded by a RAG knowledge layer with MCP-style controlled tools.
 
 ---
 
@@ -40,6 +40,18 @@ A working full-stack prototype built for Smart India Hackathon (SIH26032): farme
 | **ML explainability** | ✅ working | `/api/staff/ml/info` exposes algorithm, features, R², sample count and the fallback story — no black-box claims |
 | **CSC agent booking** | ✅ working | VLE agent books on behalf of farmers with no phone at all — the government adoption path |
 | Impact metrics | ✅ working | Farmer-hours saved today, avg time-at-centre vs 4h baseline, on the admin dashboard |
+| **National centre discovery** | ✅ working | Nearby centres ranked by TOTAL JOURNEY time (travel + queue + processing) with live status, source-stamped rate, experience rating |
+| **"Best Mandi For Me" AI** | ✅ working | One recommendation with reasons (journey, queue, rating) + alternatives |
+| **Live centre status** | ✅ working | Staff-settable OPEN/PAUSED/WEATHER… states surfaced in discovery & booking |
+| **Rate transparency** | ✅ working | ₹/quintal + estimated value — always with source + updated timestamp (no fake-official numbers) |
+| **Structured feedback + experience score** | ✅ working | 6-dimension ratings feed the mandi's public experience score |
+| **Grievance lifecycle** | ✅ working | MM-GRV tracking IDs, 5-stage timeline, admin resolution |
+| **RAG assistant (grounded)** | ✅ working | Official-doc answers WITH source + date; refuses to invent; 4 languages; voice output |
+| **MCP-style tool layer** | ✅ working | Assistant reaches data only through role-authorized tools (LLM → tool → authz → data) |
+| **"Why?" explainable engine** | ✅ working | Real drivers behind your wait: offline counters, arrival spikes, stuck stages |
+| **Mandi performance score** | ✅ working | Composite score + top-bottleneck recommendation for administrators |
+| **System health monitor** | ✅ working | National service board + online/offline mandi counts |
+| **Reschedule / cancel / auto-fill** | ✅ working | Full booking lifecycle; profile auto-fill from verified history |
 
 ## 🚀 Run it (2 terminals, ~1 minute)
 
@@ -69,7 +81,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → 35 checks, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion and the hall board.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **61 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill and reschedule.
 
 ## 🎬 5-minute demo script
 
@@ -78,6 +90,21 @@ Or double-click **`start_all.bat`** (Windows).
 3. **Staff dashboard (1.5 min)** — login staff1. Point at **AI recommendation**: "C2 idle while N farmers wait — allocate staff now". Run **autopilot**: watch the queue move stage-by-stage in real time, ETAs shrinking, timeline filling.
 4. **Transparency (1 min)** — complete a farmer's journey → receipt with **hash + chain verified ✅**; show admin **audit trail** per token.
 5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
+
+## 🧠 The four AI modules (all explainable)
+
+1. **Wait-time ETA** — ridge regression on hourly history; R² + sample count exposed; analytic fallback declared; confidence % on every ETA
+2. **Congestion forecast** — history + live arrival-rate blending per hour
+3. **Anomaly detection** — rules + IsolationForest, review-only flags
+4. **No-show risk** — transparent weighted signals with reasons on every chip
+
+Plus: **Best-Mandi-For-Me** ranking (total journey time + availability + reputation) and the **"Why?" engine** that explains waits from real operational drivers.
+
+## 📚 Knowledge layer (RAG + MCP)
+
+- `knowledge_docs` seeded with sourced prototype documents (guidelines, MSP, payment circulars, grievance policy)
+- Retrieval answers ALWAYS cite `title · source · updated` and refuse to invent when confidence is low
+- The assistant cannot touch the DB directly — it calls `TOOLS` (`get_farmer_status`, `find_nearby_centres`, `get_official_guidelines`, …), each declaring allowed roles
 
 ## 🏆 Why this wins (competitive analysis)
 

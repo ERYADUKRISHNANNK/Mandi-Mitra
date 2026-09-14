@@ -51,11 +51,19 @@ function FarmerView({ lang }) {
   const [priority, setPriority] = useState('')
   const [disputeMsg, setDisputeMsg] = useState('')
   const [notifCount, setNotifCount] = useState(0)
+  const [bfm, setBfm] = useState(null)
+  const [assistOpen, setAssistOpen] = useState(false)
+  const [chat, setChat] = useState([{ role: 'bot', text: 'Namaskaram! Ask me: "When is my turn?", "What documents do I need?", "Where is the least crowded centre?"' }])
+  const [chatQ, setChatQ] = useState('')
   const wsRef = useRef(null)
 
   useEffect(() => {
     api.get('/farmer/mandis').then((d) => setMandis(d.mandis)).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    api.get(`/farmer/best-for-me?crop=${crop}&quantity_kg=${qty}`).then(setBfm).catch(() => {})
+  }, [crop, qty])
 
   useEffect(() => {
     if (!mandiId) return
@@ -124,6 +132,20 @@ function FarmerView({ lang }) {
     alert(d.notifications.map((n) => `[${n.channel}] ${n.body}`).join('\n') || 'No messages yet')
   }
   useEffect(() => { if (status) setNotifCount((c) => c + 1) }, [status?.status]) // eslint-disable-line
+
+  const ask = async (question) => {
+    if (!question.trim()) return
+    setChat((c) => [...c, { role: 'you', text: question }])
+    setChatQ('')
+    try {
+      const r = await api.post('/farmer/assistant', {
+        question, token: ticket?.token, phone: ticket?.phone || phone,
+        role: 'farmer', crop,
+      })
+      setChat((c) => [...c, { role: 'bot', text: r.reply }])
+      speak(r.reply, lang)
+    } catch { setChat((c) => [...c, { role: 'bot', text: 'Connection issue — try again.' }]) }
+  }
 
   if (ticket && status) {
     const pos = status.position ?? '—'
@@ -208,19 +230,44 @@ function FarmerView({ lang }) {
         </div>
         <p className="muted center">{t.bookBySms}</p>
         {notifCount < 0 && <span />}
+        <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
       </div>
     )
   }
 
   return (
     <div className="fade-in">
+      <button className="ghost assist-fab" onClick={() => setAssistOpen(!assistOpen)}>🤖 Ask Mandi Mitra</button>
+      <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
+      {bfm?.recommended && (
+        <Card className="hero bfm">
+          <h3>🏆 Best centre for you (AI)</h3>
+          <div className="bfm-row">
+            <div>
+              <b>{bfm.recommended.name}</b> · {bfm.recommended.district}
+              <div className="muted">
+                {bfm.recommended.total_journey_minutes} min total · {bfm.recommended.queue_length} in queue ·
+                {bfm.recommended.rate && ` ₹${bfm.recommended.rate.rate_per_quintal}/quintal`} ·
+                ⭐ {bfm.recommended.rating.score ?? '—'}/5
+              </div>
+              {bfm.recommended.estimated_value && (
+                <div className="ok-text">Est. value: ₹{bfm.recommended.estimated_value.toLocaleString('en-IN')}</div>
+              )}
+            </div>
+            <button className="mini" onClick={() => { setMandiId(bfm.recommended.mandi_id); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+              Book here
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>{bfm.why.join(' · ')}</div>
+        </Card>
+      )}
       <Card className="hero">
         <h2>🌾 {t.book}</h2>
         <label>{t.mandi}</label>
         <select value={mandiId} onChange={(e) => setMandiId(e.target.value)}>
           {mandis.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name} · {m.congestion === 'HIGH' ? '🔴' : m.congestion === 'MODERATE' ? '🟡' : '🟢'} {m.queue_length} waiting
+              {m.status === 'OPEN' ? '🟢' : '⛔'} {m.name} · {m.congestion === 'HIGH' ? '🔴' : m.congestion === 'MODERATE' ? '🟡' : '🟢'} {m.queue_length} waiting
             </option>
           ))}
         </select>
@@ -782,6 +829,33 @@ function MandiMap({ centres }) {
         </div>
       )}
     </Card>
+  )
+}
+
+function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask }) {
+  if (!open) return null
+  return (
+    <div className="chat-panel">
+      <div className="chat-head">
+        <b>🤖 Mandi Mitra Assistant</b>
+        <button className="mini" onClick={() => setOpen(false)}>×</button>
+      </div>
+      <div className="chat-body">
+        {chat.map((m, i) => (
+          <div key={i} className={`chat-msg ${m.role === 'you' ? 'you' : 'bot'}`}>{m.text}</div>
+        ))}
+      </div>
+      <div className="chat-quick">
+        {["When is my turn?", "What documents do I need?", "Why is my payment pending?", "Least crowded centre?"].map((q) => (
+          <button key={q} className="mini" onClick={() => ask(q)}>{q}</button>
+        ))}
+      </div>
+      <div className="chat-input">
+        <input value={chatQ} onChange={(e) => setChatQ(e.target.value)}
+               onKeyDown={(e) => e.key === 'Enter' && ask(chatQ)} placeholder="Ask anything…" />
+        <button className="mini" onClick={() => ask(chatQ)}>Send</button>
+      </div>
+    </div>
   )
 }
 

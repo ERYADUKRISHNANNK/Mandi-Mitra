@@ -143,6 +143,16 @@ input, select {
 .risk.high { background: #fde8e6; color: var(--red); }
 .risk.med { background: #fef7e0; color: #8a6d00; }
 .banner.ok-banner { background: #e6f4ea; color: #0d652d; border: 1px solid #bfe3cd; }
+.chat-panel { position: fixed; right: 14px; bottom: 14px; width: 340px; max-width: 92vw; background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); z-index: 50; overflow: hidden; }
+.chat-head { background: var(--green); color: #fff; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+.chat-body { max-height: 280px; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.chat-msg { padding: 8px 12px; border-radius: 12px; font-size: 0.88rem; max-width: 85%; }
+.chat-msg.you { background: var(--green-2); color: #fff; align-self: flex-end; }
+.chat-msg.bot { background: #f0f4f1; align-self: flex-start; }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px; }
+.chat-input { display: flex; gap: 6px; padding: 8px 10px 10px; }
+.assist-fab { position: fixed; right: 14px; bottom: 14px; z-index: 49; background: var(--gold); border: 0; font-weight: 700; }
+.bfm-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .channel-feed { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .feed-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: #f6f9f7; font-size: 0.85rem; }
 .feed-row.ivr { background: #eef4fb; }

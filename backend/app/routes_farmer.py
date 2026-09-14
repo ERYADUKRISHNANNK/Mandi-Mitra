@@ -441,6 +441,173 @@ def public_board(mandi_id: str):
  }
 
 
+# ----------------------- Layer 2: discovery + assistant -------------------- #
+
+@router.get("/discover")
+def discover_centres(lat: float | None = None, lng: float | None = None,
+                     crop: str | None = None, quantity_kg: float = 0, pin: str | None = None):
+    """Nearby-centre discovery ranked by TOTAL JOURNEY time (travel + queue +
+    processing), with status, rate (source-stamped) and experience rating."""
+    from .discovery import discover
+    return {"centres": discover(lat, lng, crop, quantity_kg, pin)}
+
+
+@router.get("/best-for-me")
+def best_for_me(lat: float | None = None, lng: float | None = None,
+                crop: str = "Paddy", quantity_kg: float = 500):
+    """'Best Mandi For Me' AI: ranks every centre on total journey time,
+    availability and reputation, and explains the recommendation."""
+    from .discovery import best_for_me as bfm
+    return bfm(lat, lng, crop, quantity_kg)
+
+
+class AssistantIn(BaseModel):
+    question: str
+    token: str | None = None
+    phone: str | None = None
+    role: str = "farmer"
+    lat: float | None = None
+    lng: float | None = None
+    crop: str | None = None
+
+
+@router.post("/assistant")
+def assistant(body: AssistantIn):
+    """Mandi Mitra assistant: grounded in the RAG knowledge base and MCP-style
+    tools — never free-form invention. Every dynamic answer cites its tool."""
+    from .assistant import assistant_reply
+    user = {"role": body.role, "token": body.token, "phone": body.phone,
+            "lat": body.lat, "lng": body.lng, "crop": body.crop}
+    return assistant_reply(body.question, user)
+
+
+@router.get("/knowledge")
+def knowledge_topics():
+    """Browseable knowledge base (used for offline caching on the PWA)."""
+    rows = query("SELECT title, source, updated, content FROM knowledge_docs ORDER BY id")
+    return {"documents": [dict(r) for r in rows]}
+
+
+@router.get("/why")
+def why(token: str | None = None, mandi_id: str = "KL-KOCHI-01"):
+    """Explainable AI: why is the wait what it is?"""
+    from .explain import why_wait
+    return why_wait(mandi_id, token)
+
+
+class FeedbackIn(BaseModel):
+    token: str
+    ratings: dict  # waiting, staff, queue_mgmt, info, payment, facilities, overall (1-5)
+    comment: str = ""
+
+
+@router.post("/feedback")
+def submit_feedback_ep(body: FeedbackIn):
+    from .feedback import submit_feedback
+    t = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    return submit_feedback(body.token, t["phone"], t["mandi_id"], body.ratings, body.comment)
+
+
+class GrievanceIn(BaseModel):
+    token: str | None = None
+    phone: str | None = None
+    mandi_id: str | None = None
+    category: str = "OTHER"
+    description: str = ""
+
+
+@router.post("/grievance")
+def grievance(body: GrievanceIn):
+    from .feedback import file_grievance
+    token = body.token
+    phone = body.phone
+    mandi_id = body.mandi_id
+    if token:
+        t = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
+        if t:
+            phone = phone or t["phone"]
+            mandi_id = mandi_id or t["mandi_id"]
+    if not phone or not mandi_id:
+        raise HTTPException(status_code=422, detail="phone and mandi_id required (or a valid token)")
+    return file_grievance(token, phone, mandi_id, body.category, body.description)
+
+
+@router.get("/grievance/{grievance_id}")
+def grievance_track(grievance_id: str):
+    from .feedback import track_grievance
+    g = track_grievance(grievance_id)
+    if not g:
+        raise HTTPException(status_code=404, detail="Unknown grievance ID")
+    return g
+
+
+@router.get("/grievances/mine")
+def grievances_mine(phone: str):
+    from .feedback import my_grievances
+    return {"grievances": my_grievances(phone)}
+
+
+# ----------------------- booking lifecycle extensions ---------------------- #
+
+class RescheduleIn(BaseModel):
+    token: str
+    new_slot_time: str
+
+
+@router.post("/reschedule")
+def reschedule(body: RescheduleIn):
+    t = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    if t["status"] not in ("SLOT_BOOKED",):
+        raise HTTPException(status_code=409, detail="Only SLOT_BOOKED tickets can be rescheduled")
+    execute("UPDATE tickets SET slot_time = ? WHERE id = ?", (body.new_slot_time, t["id"]))
+    log_event(t["mandi_id"], f"FARMER:{t['phone']}", "BOOKING_RESCHEDULED",
+              {"token": body.token, "new_slot": body.new_slot_time}, t["id"])
+    recompute_mandi(t["mandi_id"])
+    return {"ok": True, "token": body.token, "new_slot_time": body.new_slot_time}
+
+
+class CancelIn(BaseModel):
+    token: str
+
+
+@router.post("/cancel")
+def cancel(body: CancelIn):
+    t = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    if t["status"] not in ("SLOT_BOOKED", "ARRIVED"):
+        raise HTTPException(status_code=409, detail=f"Cannot cancel from {t['status']}")
+    execute("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?", (t["id"],))
+    log_event(t["mandi_id"], f"FARMER:{t['phone']}", "BOOKING_CANCELLED", {"token": body.token}, t["id"])
+    recompute_mandi(t["mandi_id"])
+    return {"ok": True, "token": body.token}
+
+
+@router.get("/profile")
+def profile(phone: str):
+    """Auto-fill: verified profile for one-tap booking (no repeated typing)."""
+    farmer = query_one("SELECT phone, mm_id, name, lang FROM farmers WHERE phone = ?", (phone,))
+    if not farmer:
+        raise HTTPException(status_code=404, detail="Unknown farmer")
+    last = query_one(
+        "SELECT crop, quantity_kg, mandi_id FROM tickets WHERE phone = ? ORDER BY id DESC LIMIT 1",
+        (phone,),
+    )
+    tickets = query_one(
+        "SELECT COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS c FROM tickets WHERE phone = ?",
+        (phone,),
+    )
+    return {"farmer": dict(farmer),
+            "defaults": {"crop": last["crop"] if last else "Paddy",
+                         "quantity_kg": last["quantity_kg"] if last else 500,
+                         "mandi_id": last["mandi_id"] if last else "KL-KOCHI-01"},
+            "history": {"bookings": tickets["n"], "completed": tickets["c"]}}
+
+
 @router.get("/mandis")
 def mandis():
     rows = query("SELECT id, name, district, lat, lng, opens_at, closes_at FROM mandis")

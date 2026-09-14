@@ -78,6 +78,17 @@ class IVRBroadcastIn(BaseModel):
     lang: str = "ml"
 
 
+class MandiStatusIn(BaseModel):
+    status: str
+    note: str = ""
+
+
+class GrvUpdateIn(BaseModel):
+    grievance_id: str
+    status: str
+    note: str = ""
+
+
 class AutoIn(BaseModel):
     steps: int = 8
     mandi_id: str | None = None
@@ -413,6 +424,58 @@ def verify_receipts(user: dict = Depends(staff_auth)):
 
 
 # ------------------------------ admin ------------------------------------- #
+
+# ----------------------- admin intelligence 2.0 --------------------------- #
+
+@admin_router.get("/performance/{mandi_id}")
+def mandi_performance_ep(mandi_id: str, user: dict = Depends(admin_auth)):
+    from .explain import mandi_performance
+    return mandi_performance(mandi_id)
+
+
+@admin_router.get("/system-health")
+def system_health_ep(user: dict = Depends(admin_auth)):
+    from .explain import system_health
+    return system_health()
+
+
+@admin_router.get("/grievances/all")
+def all_grievances(user: dict = Depends(admin_auth)):
+    from .feedback import list_open
+    return {"open": list_open()}
+
+
+@admin_router.post("/grievances/update")
+def grievance_update(body: GrvUpdateIn, user: dict = Depends(admin_auth)):
+    from .feedback import update_status
+    g = update_status(body.grievance_id, body.status, user.get("username"), body.note)
+    if not g:
+        raise HTTPException(status_code=400, detail="Invalid grievance or status")
+    return g
+
+
+@router.post("/status")
+def set_status(body: MandiStatusIn, user: dict = Depends(staff_auth)):
+    """Staff set their centre's live status (paused, weather, etc.) —
+    HIGH_CONGESTION is set automatically by the system when queues explode."""
+    from .db import execute, now_iso
+    mandi_id = _require_mandi(user)
+    if body.status not in ("OPEN", "CLOSED", "TEMP_CLOSED", "PAUSED", "HIGH_CONGESTION", "PAYMENT_DELAY", "WEATHER"):
+        raise HTTPException(status_code=422, detail="Unknown status")
+    execute(
+        "INSERT INTO mandi_status (mandi_id, status, note, updated_at) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(mandi_id) DO UPDATE SET status = ?, note = ?, updated_at = ?",
+        (mandi_id, body.status, body.note, now_iso(), body.status, body.note, now_iso()),
+    )
+    log_event(mandi_id, f"STAFF:{user['username']}", "STATUS_CHANGED", {"status": body.status}, None)
+    return {"ok": True, "mandi_id": mandi_id, "status": body.status}
+
+
+@router.get("/performance")
+def perf_self(user: dict = Depends(staff_auth)):
+    from .explain import mandi_performance
+    return mandi_performance(_require_mandi(user))
+
 
 @admin_router.get("/command-centre")
 def command_centre(user: dict = Depends(admin_auth)):

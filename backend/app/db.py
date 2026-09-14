@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     slot_time           TEXT NOT NULL,
     lang                TEXT NOT NULL DEFAULT 'ml',
     status              TEXT NOT NULL DEFAULT 'SLOT_BOOKED'
-                        CHECK (status IN ('SLOT_BOOKED','ARRIVED','WEIGHING','QUALITY_CHECK','PAYMENT','COMPLETED','NO_SHOW')),
+                        CHECK (status IN ('SLOT_BOOKED','ARRIVED','WEIGHING','QUALITY_CHECK','PAYMENT','COMPLETED','NO_SHOW','CANCELLED')),
     position            INTEGER,
     eta_minutes         REAL,
     priority            INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +120,54 @@ CREATE TABLE IF NOT EXISTS receipts (
     prev_hash  TEXT NOT NULL,
     hash       TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mandi_status (
+    mandi_id   TEXT PRIMARY KEY,
+    status     TEXT NOT NULL DEFAULT 'OPEN'
+               CHECK (status IN ('OPEN','CLOSED','TEMP_CLOSED','PAUSED','HIGH_CONGESTION','PAYMENT_DELAY','WEATHER')),
+    note       TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    token      TEXT NOT NULL,
+    phone      TEXT NOT NULL,
+    mandi_id   TEXT NOT NULL,
+    waiting    INTEGER NOT NULL,
+    staff      INTEGER NOT NULL,
+    queue_mgmt INTEGER NOT NULL,
+    info       INTEGER NOT NULL,
+    payment    INTEGER NOT NULL,
+    facilities INTEGER NOT NULL,
+    overall    INTEGER NOT NULL,
+    comment    TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS grievances (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    grievance_id TEXT UNIQUE NOT NULL,
+    token       TEXT,
+    phone       TEXT NOT NULL,
+    mandi_id    TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    description TEXT,
+    status      TEXT NOT NULL DEFAULT 'SUBMITTED'
+                CHECK (status IN ('SUBMITTED','ASSIGNED','UNDER_REVIEW','ACTION_TAKEN','RESOLVED')),
+    assigned_to TEXT,
+    resolution  TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_docs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    title   TEXT NOT NULL,
+    source  TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    content TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS history_stats (

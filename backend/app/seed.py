@@ -69,6 +69,54 @@ def seed_if_empty():
                     (m["id"], date, hour, arrivals, processed, avg_wait, counters),
                 )
 
+    # --- Live centre statuses (staff-updatable in the dashboard) ------------
+    now_ts = datetime.now().isoformat(timespec='seconds')
+    for m in MANDIS:
+        execute("INSERT INTO mandi_status (mandi_id, status, note, updated_at) VALUES (?, 'OPEN', NULL, ?)",
+                (m['id'], now_ts))
+
+    # --- Knowledge base for the RAG assistant (prototype documents with sources)
+    DOCS = [
+        ("Documents required for procurement",
+         "Official Procurement Guidelines v3.2, Dept of Food & Civil Supplies",
+         "2026-08",
+         "Farmers need: 1) Identity proof (Aadhaar/voter ID), 2) Land record or tenancy certificate, "
+         "3) Bank passbook for payment credit, 4) Mobile number registered with Mandi Mitra. "
+         "Bring the token SMS or gate-pass QR. No photocopies are needed at the centre."),
+        ("Procurement process step by step",
+         "Centre Operations Manual, 2026",
+         "2026-07",
+         "Steps: token verification at the gate, vehicle weighing (gross minus tare), "
+         "quality check (moisture and foreign matter), grade A or B assignment at MSP rates, "
+         "digital slip signing, payment directly to the bank account. Typical 15-30 minutes per lot."),
+        ("Quality grades and MSP rates",
+         "MSP Notification, Ministry of Agriculture",
+         "2026-09",
+         "Grade A receives full MSP. Grade B receives 92% of MSP. Moisture above 17% is dried "
+         "before acceptance at the centre's drying facility at no cost to the farmer."),
+        ("Payment timeline",
+         "Payment Operations circular 12/2026",
+         "2026-08",
+         "Procurement amounts are transferred directly to bank accounts, normally within 48 hours. "
+         "Mandi Mitra flags any payment crossing the expected window and alerts the district officer "
+         "automatically. Farmers can track payment status by token, SMS or the missed call."),
+        ("Grievance redressal",
+         "Grievance Policy 2026",
+         "2026-06",
+         "Any issue can be raised as a grievance with a tracking ID (MM-GRV-XXXXXX). "
+         "Timeline: Submitted to Assigned to Under Review to Action Taken to Resolved. "
+         "Unresolved after 7 days auto-escalates to the district officer."),
+        ("Who can use Mandi Mitra",
+         "Mandi Mitra farmer FAQ",
+         "2026-09",
+         "Every farmer: smartphone users via the app, feature-phone users via SMS and the "
+         "missed call, and farmers with no phone via a CSC/VLE agent or the walk-in kiosk. "
+         "All services are free. No intermediaries are needed for information."),
+    ]
+    for title, source, updated, content in DOCS:
+        execute("INSERT INTO knowledge_docs (title, source, updated, content) VALUES (?, ?, ?, ?)",
+                (title, source, updated, content))
+
     train()
 
 
