@@ -111,7 +111,7 @@ check("IVR voice status", code == 200 and len(ivr.get("ivr_says", "")) > 10)
 
 code, sms = call("POST", "/api/sms", {"phone": "9990001111",
                                       "message": "BOOK KL-KOCHI-01 WHEAT 700"})
-check("SMS booking channel", code == 200 and "Booked" in sms.get("reply", ""))
+check("SMS booking channel", code == 200 and "Booked" in sms.get("reply", ""), str(sms)[:160])
 
 code, mc = call("POST", "/api/missed-call", {"phone": "9990001111"})
 check("missed-call IVR callback", code == 200 and "position" in mc)
@@ -180,7 +180,7 @@ code, sc = call("POST", "/api/staff/scenario/congestion", {}, token=jwt)
 check("congestion scenario injector", code == 200 and sc.get("ok"))
 
 code, sla2 = call("GET", "/api/staff/sla", token=jwt)
-check("SLA detects injected breaches", code == 200 and sla2.get("breaches"))
+check("SLA detects injected breaches", code == 200 and sla2.get("breaches"), str(sla2)[:160])
 
 code, an2 = call("GET", "/api/staff/anomalies", token=jwt)
 check("anomaly scanner detects velocity seed",
@@ -192,7 +192,7 @@ check("ML explainability endpoint", code == 200 and mli.get("training", {}).get(
 code, ab = call("POST", "/api/staff/agent-book",
                 {"farmer_name": "CSC Agent Farmer", "phone": "9002222333",
                  "crop": "Paddy", "quantity_kg": 450, "slot_time": "15:30"}, token=jwt)
-check("CSC agent booking", code == 200 and ab.get("token", "").startswith("MND-"))
+check("CSC agent booking", code == 200 and ab.get("token", "").startswith("MND-"), str(ab)[:160])
 
 code, ab2 = call("POST", "/api/staff/agent-book",
                  {"farmer_name": "CSC Agent Farmer", "phone": "9002222333", "slot_time": "15:30"}, token=jwt)
@@ -202,7 +202,8 @@ check("agent duplicate booking rejected", code == 409)
 code, q1 = call("GET", "/api/staff/queue", token=jwt)
 check("queue has eta_delta + risk fields", code == 200 and
       all("eta_delta" in q for q in q1.get("queue", [])) and
-      any(q.get("risk_band") for q in q1.get("queue", [])))
+      any(q.get("risk_band") for q in q1.get("queue", [])),
+      f"n={len(q1.get('queue', []))} first={str(q1.get('queue', [])[:1])[:200]}")
 
 code, sc2 = call("POST", "/api/staff/scenario/congestion", {}, token=jwt)
 code, q2 = call("GET", "/api/staff/queue", token=jwt)
@@ -275,6 +276,70 @@ check("reschedule (or 409 if past booking)", code in (200, 409))
 
 code, kb = call("GET", "/api/farmer/knowledge")
 check("knowledge base for offline caching", code == 200 and len(kb.get("documents", [])) >= 5)
+
+# --- wave-5: voice-to-action booking, passport, explain-payment, triage ------
+code, vb = call("POST", "/api/farmer/voice-book",
+                {"phone": "9003333444", "farmer_name": "Voice Farmer", "crop": "Paddy",
+                 "quantity_kg": 400, "when": "nearest", "confirm": False})
+check("voice booking proposal (no booking yet)", code == 200 and vb.get("stage") == "proposal"
+      and vb.get("needs_confirmation") is True)
+
+code, vb2 = call("POST", "/api/farmer/voice-book",
+                 {"phone": "9003333444", "farmer_name": "Voice Farmer", "crop": "Paddy",
+                  "quantity_kg": 400, "when": "nearest", "confirm": True})
+check("voice booking only after confirm", code == 200 and vb2.get("token", "").startswith("MND-"), str(vb2)[:160])
+
+code, pp = call("GET", "/api/farmer/passport?phone=9876543210")
+check("farmer procurement passport", code == 200 and pp.get("totals") is not None
+      and pp.get("farmer", {}).get("mm_id", "").startswith("MM-"))
+
+code, ep = call("GET", f"/api/farmer/explain-payment?token={token}")
+check("explain-my-payment checklist", code == 200 and len(ep.get("checklist", [])) == 5
+      and ep.get("summary"))
+
+code, tri = call("POST", "/api/farmer/triage",
+                 {"token": token, "mandi_id": "KL-KOCHI-01",
+                  "description": "I have been waiting for three hours and nobody is telling me anything"})
+check("AI grievance triage", code == 200 and tri.get("priority") == "HIGH"
+      and tri.get("grievance_id", "").startswith("MM-GRV-"))
+
+# --- wave-5: digital twin, capacity planner, copilot, model health, trust ----
+code, tw = call("GET", "/api/staff/twin?multiplier=1.5&counters=2", token=jwt)
+check("digital twin simulation", code == 200 and tw.get("eta_now_minutes") is not None
+      and tw.get("projected_end_queue") is not None)
+
+code, cap = call("GET", "/api/staff/capacity-plan", token=jwt)
+check("AI capacity planner", code == 200 and cap.get("expected_farmers") is not None
+      and cap.get("recommended_counters") >= 1 and cap.get("recommended_staff") >= 1)
+
+code, hm = call("GET", "/api/staff/heatmap", token=jwt)
+check("bottleneck heatmap", code == 200 and len(hm.get("heatmap", [])) == 6
+      and "primary_bottleneck" in hm)
+
+code, qf = call("GET", "/api/staff/quantity-forecast", token=jwt)
+check("procurement quantity forecast", code == 200 and qf.get("expected_eod_mt") is not None)
+
+code, brf = call("GET", "/api/staff/briefing", token=jwt)
+check("staff copilot briefing", code == 200 and brf.get("headline") and brf.get("recommendation"))
+
+code, rep = call("GET", "/api/staff/daily-report", token=jwt)
+check("auto daily report", code == 200 and rep.get("farmers_served") is not None
+      and rep.get("ai_recommendation"))
+
+code, mph = call("GET", "/api/staff/model-health", token=jwt)
+check("model health (ETA accuracy/MAE)", code == 200 and mph.get("samples") is not None
+      and "retrain_policy" in mph)
+
+code, insd = call("GET", "/api/staff/insider", token=jwt)
+check("insider-threat scan (review-only)", code == 200 and isinstance(insd.get("alerts"), list))
+
+code, ts = call("GET", "/api/staff/trust-score", token=jwt)
+check("mandi trust score", code == 200 and 0 <= ts.get("trust_score", -1) <= 100
+      and len(ts.get("components", {})) == 5)
+
+code, emr = call("POST", "/api/staff/emergency-mode",
+                 {"active": False, "reason": "drill-off"}, token=jwt)
+check("emergency mode toggle", code == 200 and emr.get("ok"))
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

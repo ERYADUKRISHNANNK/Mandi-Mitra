@@ -49,7 +49,12 @@ function FarmerView({ lang }) {
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState('')
   const [priority, setPriority] = useState('')
+  const [vehicle, setVehicle] = useState('')
   const [disputeMsg, setDisputeMsg] = useState('')
+  const [passport, setPassport] = useState(null)
+  const [explain, setExplain] = useState(null)
+  const [voiceText, setVoiceText] = useState('')
+  const [voiceProposal, setVoiceProposal] = useState(null)
   const [notifCount, setNotifCount] = useState(0)
   const [bfm, setBfm] = useState(null)
   const [assistOpen, setAssistOpen] = useState(false)
@@ -78,6 +83,8 @@ function FarmerView({ lang }) {
     const { status: s, offline: off } = await refreshStatusOfflineAware(tk)
     setStatus(s)
     setOffline(off)
+    api.get(`/farmer/passport?phone=${tk.phone}`).then(setPassport).catch(() => {})
+    api.get(`/farmer/explain-payment?token=${tk.token}`).then(setExplain).catch(() => {})
   }
 
   useEffect(() => { loadStatus() /* eslint-disable-line */ }, [ticket?.token])
@@ -105,6 +112,7 @@ function FarmerView({ lang }) {
         mandi_id: mandiId, phone, farmer_name: name || 'Farmer',
         crop, quantity_kg: Number(qty), slot_time: chosen.slot_time, lang,
         priority_flag: priority || null,
+        vehicle_type: vehicle || null,
       })
       const tk = { token: b.token, phone: b.phone }
       saveTicket(tk.token, tk.phone)
@@ -113,6 +121,25 @@ function FarmerView({ lang }) {
     } catch (e) { setError(e.message) }
   }
 
+
+  const voiceBook = async (confirm = false) => {
+    try {
+      const r = await api.post('/farmer/voice-book', {
+        phone: phone || '9000000000', farmer_name: name || 'Farmer', crop,
+        quantity_kg: Number(qty) || 500,
+        when: /tomorrow/i.test(voiceText) ? 'tomorrow' : 'nearest',
+        confirm,
+      })
+      setVoiceProposal(r)
+      speak(r.message || '', lang)
+      if (confirm && r.token) {
+        saveTicket(r.token, r.phone)
+        setTicket({ token: r.token, phone: r.phone })
+        setVoiceProposal(null); setVoiceText('')
+        await loadStatus({ token: r.token, phone: r.phone })
+      }
+    } catch (e) { setError(e.message) }
+  }
 
   const selfCheckIn = async () => {
     setError('')
@@ -210,6 +237,41 @@ function FarmerView({ lang }) {
         {['PAYMENT', 'COMPLETED'].includes(status.status) && <DisputeBox token={status.token} onDone={setDisputeMsg} />}
 
         <Card>
+          <h3>🧾 My procurement passport</h3>
+          {passport ? (
+            <>
+              <div className="grid3">
+                <Stat label="Visits" value={passport.totals.visits} />
+                <Stat label="Completed" value={passport.totals.completed} tone="ok" />
+                <Stat label="Avg time at centre" value={`${passport.totals.avg_wait_minutes}m`} />
+              </div>
+              <p className="muted">Mandi Mitra ID {passport.farmer.mm_id} · payments received {passport.totals.payments_received}</p>
+              {passport.by_crop.map((c) => (
+                <div key={c.crop} className="muted">🌾 {c.crop}: {c.visits} visits · {c.completed} completed · ₹{(c.earned || 0).toLocaleString('en-IN')} earned</div>
+              ))}
+            </>
+          ) : <p className="muted">History loads after your first visit.</p>}
+        </Card>
+
+        {explain && (
+          <Card>
+            <h3>💡 Explain my payment</h3>
+            <div className="timeline">
+              {explain.checklist.map((s) => (
+                <div key={s.step} className={`tl-step ${s.done ? 'done' : ''}`}>
+                  <div className="tl-dot">{s.done ? '✓' : '•'}</div>
+                  <div>
+                    <div className="tl-name">{s.step}</div>
+                    {s.pending_detail && <div className="tl-ts">{s.pending_detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="advice-line">{explain.summary}</p>
+          </Card>
+        )}
+
+        <Card>
           <h3>🧭 {t.timeline}</h3>
           <Timeline events={status.timeline || []} />
         </Card>
@@ -285,6 +347,15 @@ function FarmerView({ lang }) {
         </div>
         <label>{t.name}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rajan Kumar" />
+        <label>🚚 Vehicle / load (helps unloading prep)</label>
+        <select value={vehicle} onChange={(e) => setVehicle(e.target.value)}>
+          <option value="">— Not specified —</option>
+          <option>Tractor</option>
+          <option>Truck</option>
+          <option>Mini truck</option>
+          <option>Auto</option>
+          <option>Other</option>
+        </select>
         <label>📱 Mobile number</label>
         <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                placeholder="9876500000" inputMode="numeric" />
@@ -315,6 +386,24 @@ function FarmerView({ lang }) {
           {error && <p className="error">{error}</p>}
         </Card>
       )}
+
+      <Card>
+        <h3>🎙 Voice-to-action booking <span className="muted">(confirms before anything is booked)</span></h3>
+        <div className="grid2">
+          <input value={voiceText} onChange={(e) => setVoiceText(e.target.value)}
+                 placeholder='"Book tomorrow morning at the nearest mandi"' />
+          <button className="primary" style={{ marginTop: 0 }} onClick={() => voiceBook(false)}>🎙 Simulate voice request</button>
+        </div>
+        {voiceProposal && (
+          <div className="advice">
+            <p className="advice-line">🤖 {voiceProposal.message}</p>
+            {voiceProposal.needs_confirmation && (
+              <button className="primary" onClick={() => voiceBook(true)}>✅ Yes — confirm my booking</button>
+            )}
+            {voiceProposal.token && <p className="ok-text">Booked! Token {voiceProposal.token}</p>}
+          </div>
+        )}
+      </Card>
     </div>
   )
 }
@@ -420,11 +509,20 @@ function StaffView({ lang, onLogout }) {
   const [walkin, setWalkin] = useState({ name: '', phone: '', crop: 'Paddy', qty: 500, priority: '' })
   const [agent, setAgent] = useState({ name: '', phone: '', slot: '14:00' })
   const [channels, setChannels] = useState([])
+  const [briefing, setBriefing] = useState(null)
+  const [twin, setTwin] = useState(null)
+  const [heat, setHeat] = useState(null)
+  const [twinScenario, setTwinScenario] = useState({ counters: '', multiplier: 1.0 })
+  const [cap, setCap] = useState(null)
+  const [mh, setMh] = useState(null)
+  const [ins, setIns] = useState(null)
+  const [trust, setTrust] = useState(null)
+  const [emergency, setEmergency] = useState(false)
   const [err, setErr] = useState('')
 
   const load = async () => {
     try {
-      const [d, q, b, a, s, w, dp, ch] = await Promise.all([
+      const [d, q, b, a, s, w, dp, ch, br, ht, cp, mhd, insd, tsd] = await Promise.all([
         api.get('/staff/dashboard', jwt),
         api.get('/staff/queue', jwt),
         api.get('/staff/bottleneck', jwt),
@@ -433,9 +531,16 @@ function StaffView({ lang, onLogout }) {
         api.get('/staff/whatif', jwt),
         api.get('/staff/disputes', jwt),
         api.get('/staff/notifications?limit=12', jwt),
+        api.get('/staff/briefing', jwt),
+        api.get('/staff/heatmap', jwt),
+        api.get('/staff/capacity-plan', jwt),
+        api.get('/staff/model-health', jwt),
+        api.get('/staff/insider', jwt),
+        api.get('/staff/trust-score', jwt),
       ])
       setDash(d); setQueue(q); setBott(b); setAnom(a); setSla(s); setWhatif(w); setDisputes(dp)
-      setChannels(ch.notifications || []); setErr('')
+      setChannels(ch.notifications || []); setBriefing(br); setHeat(ht); setErr('')
+      setCap(cp); setMh(mhd); setIns(insd); setTrust(tsd)
     } catch (e) { setErr(e.message) }
   }
 
@@ -487,10 +592,33 @@ function StaffView({ lang, onLogout }) {
                   style={{ display: 'none' }} />
           <a className="ghost" href="/api/staff/report/daily.csv" download>📄 Daily CSV</a>
           <button className="ghost" onClick={() => act('/staff/scenario/congestion', {})}>⚡ Congestion scenario</button>
+          <button className={`ghost ${emergency ? 'danger' : ''}`} onClick={async () => {
+            const next = !emergency
+            await act('/staff/emergency-mode', { active: next, reason: next ? 'emergency closure (drill)' : '' })
+            setEmergency(next)
+          }}>{emergency ? '🟢 End emergency' : '🚨 Emergency mode'}</button>
+          <button className="ghost" onClick={async () => {
+            try {
+              const r = await api.get('/staff/daily-report', jwt)
+              alert(`📋 MANDI DAILY REPORT — ${r.date}\nFarmers served: ${r.farmers_served}\nCompleted: ${r.completed} · No-shows: ${r.no_shows}\nAvg wait: ${r.avg_wait_minutes} min · Peak queue hour: ${r.peak_queue_hour}\nPayments pending: ${r.payments_pending} · Amount: ₹${Number(r.amount_procured_rs).toLocaleString('en-IN')}\nMain bottleneck: ${r.main_bottleneck || '—'}\nAI recommendation: ${r.ai_recommendation}`)
+            } catch (e) { setErr(e.message) }
+          }}>📋 Daily report</button>
           <button className="ghost" onClick={() => { sessionStorage.clear(); onLogout() }}>⎋</button>
         </div>
       </div>
       {err && <p className="error">{err}</p>}
+      {briefing && (
+        <div className="banner ok-banner">
+          🧑‍✈️ <b>Staff Copilot:</b> {briefing.headline} {briefing.recommendation}
+          {briefing.payments_needing_attention > 0 && ` · ${briefing.payments_needing_attention} payment case(s) need attention`}
+          {briefing.sla_breaches_now > 0 && ` · ${briefing.sla_breaches_now} SLA breach(es) now`}
+        </div>
+      )}
+      {emergency && (
+        <div className="banner alert">
+          🚨 EMERGENCY MODE ACTIVE — bookings frozen, centre marked CLOSED. Affected farmers notified and directed to alternative centres per procurement rules.
+        </div>
+      )}
       {sla?.breaches?.length > 0 && (
         <div className="banner alert">
           ⏱ SLA breach: {sla.breaches.map((b) => `${b.token} (${b.waited_minutes}m)`).join(', ')} waiting over {sla.threshold_minutes} min — serve or call now.
@@ -618,6 +746,82 @@ function StaffView({ lang, onLogout }) {
           ))}
         </Card>
       )}
+
+      <Card>
+        <h3>🔮 Digital Twin — simulate before deciding</h3>
+        <div className="grid4">
+          <div><label>Counters</label>
+            <select value={twinScenario.counters} onChange={(e) => setTwinScenario({ ...twinScenario, counters: e.target.value })}>
+              <option value="">live</option>
+              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div><label>Arrival surge</label>
+            <select value={twinScenario.multiplier} onChange={(e) => setTwinScenario({ ...twinScenario, multiplier: Number(e.target.value) })}>
+              <option value={0.7}>−30%</option>
+              <option value={1}>normal</option>
+              <option value={1.5}>+50%</option>
+              <option value={2}>×2</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button className="primary" style={{ marginTop: 0 }} onClick={async () => {
+              const qs = new URLSearchParams()
+              if (twinScenario.counters) qs.set('counters', twinScenario.counters)
+              qs.set('multiplier', twinScenario.multiplier)
+              setTwin(await api.get(`/staff/twin?${qs}`, jwt))
+            }}>Run simulation</button>
+          </div>
+          <div style={{ alignSelf: 'flex-end' }}>
+            {twin && <div className="advice">
+              <div>Now: <b>{twin.eta_now_minutes}m</b> wait · {twin.current_queue} in queue</div>
+              <div>End-of-day queue: <b>{twin.projected_end_queue}</b></div>
+              <div>Peak queue: <b>{twin.peak_queue}</b></div>
+            </div>}
+          </div>
+        </div>
+        {heat && (
+          <div className="heat-row">
+            {heat.heatmap.map((h) => (
+              <div key={h.stage} className={`heat-cell ${h.level.toLowerCase()}`}>
+                <span className="heat-name">{h.stage.replace(/_/g, ' ').slice(0, 12)}</span>
+                <b>{h.waiting}</b>
+              </div>
+            ))}
+            {heat.primary_bottleneck && (
+              <span className="muted"> ← bottleneck: <b>{heat.primary_bottleneck.replace(/_/g, ' ')}</b></span>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <h3>🧭 Operations intelligence <span className="muted">(AI capacity plan · model health · trust · insider review)</span></h3>
+        {cap && (
+          <div className="grid4">
+            <Stat label="Expected farmers" value={cap.expected_farmers} />
+            <Stat label="Expected volume" value={`${cap.expected_quantity_mt} MT`} />
+            <Stat label="Peak window" value={cap.expected_peak_window} />
+            <Stat label="AI staffing plan" value={`${cap.recommended_counters} counters`}
+                  sub={`${cap.recommended_staff} staff · ${cap.recommended_slot_capacity} slots`} tone="ok" />
+          </div>
+        )}
+        {mh && (
+          <p className="muted" style={{ marginTop: 8 }}>
+            📈 Model health: ETA accuracy <b>{mh.eta_accuracy_pct ?? '—'}%</b> · MAE {mh.mae_minutes ?? '—'} min · {mh.samples} samples · {mh.retrain_policy}
+          </p>
+        )}
+        {trust && (
+          <p className="muted">⭐ Trust score: <b>{trust.trust_score}/100</b> — queue {trust.components.queue_efficiency_pct}% · payment {trust.components.payment_reliability_pct}% · resolution {trust.components.complaint_resolution_pct}% · farmer rating {trust.components.farmer_rating}/5</p>
+        )}
+        <div className="anomaly" style={{ marginTop: 8 }}>
+          <b>🕵 Insider-threat review feed</b>
+          {(ins?.alerts || []).length === 0 && <div className="muted">No behavioural anomalies — staff activity within normal patterns.</div>}
+          {(ins?.alerts || []).map((a, i) => (
+            <div key={i} className="muted">⚠ {a.actor}: {a.detail} — severity {a.severity}. {a.recommendation}</div>
+          ))}
+        </div>
+      </Card>
 
       <Card>
         <h3>📱 CSC / agent booking <span className="muted">(adoption path — booked on farmer's behalf)</span></h3>

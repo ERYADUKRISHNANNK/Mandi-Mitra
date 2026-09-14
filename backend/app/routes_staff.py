@@ -439,6 +439,40 @@ def system_health_ep(user: dict = Depends(admin_auth)):
     return system_health()
 
 
+@admin_router.get("/national-heatmap")
+def national_heatmap_ep(user: dict = Depends(admin_auth)):
+    """National view: congestion, volumes, payment delays, grievances per centre."""
+    from .copilot import trust_score
+    from .twin import quantity_forecast
+    centres = []
+    for m in query("SELECT * FROM mandis"):
+        s = _mandi_stats(m["id"])
+        qf = quantity_forecast(m["id"])
+        ts = trust_score(m["id"])
+        centres.append({
+            "mandi_id": m["id"], "name": m["name"], "district": m["district"],
+            "congestion": "HIGH" if s["queue_length"] >= 25 else "MODERATE" if s["queue_length"] >= 10 else "LOW",
+            "queue_length": s["queue_length"],
+            "procured_mt": qf["received_mt"],
+            "payment_delays": s["payments_delayed"],
+            "grievances": s["anomaly_flags"],
+            "trust_score": ts["trust_score"],
+        })
+    return {"centres": centres,
+            "summary": {
+                "total_queue": sum(c["queue_length"] for c in centres),
+                "total_procured_mt": round(sum(c["procured_mt"] for c in centres), 1),
+                "payment_delays": sum(c["payment_delays"] for c in centres),
+                "avg_trust": round(sum(c["trust_score"] for c in centres) / max(1, len(centres))),
+            }}
+
+
+@admin_router.get("/model-monitor")
+def model_monitor_ep(user: dict = Depends(admin_auth)):
+    from .copilot import model_health, insider_threat
+    return {"model_health": model_health(), "insider_alerts": insider_threat()}
+
+
 @admin_router.get("/grievances/all")
 def all_grievances(user: dict = Depends(admin_auth)):
     from .feedback import list_open
@@ -817,6 +851,109 @@ def agent_book(body: AgentBookIn, user: dict = Depends(staff_auth)):
     recompute_mandi(mandi_id)
     return {"ok": True, "token": token, "slot_time": body.slot_time,
             "message": "Booked by CSC agent on behalf of farmer; confirmation SMS queued."}
+
+
+# --------------------------- wave-5 intelligence --------------------------- #
+
+@router.get("/twin")
+def twin(multiplier: float = 1.0, counters: int | None = None,
+         user: dict = Depends(staff_auth)):
+    """Digital twin: simulate the rest of the day under scenario parameters."""
+    from .twin import simulate
+    return simulate(_require_mandi(user), counters=counters, arrival_multiplier=multiplier)
+
+
+@router.get("/twin/compare")
+def twin_compare(user: dict = Depends(staff_auth)):
+    from .twin import compare_scenarios
+    return compare_scenarios(_require_mandi(user))
+
+
+@router.get("/capacity-plan")
+def capacity_plan_ep(user: dict = Depends(staff_auth)):
+    from .twin import capacity_plan
+    return capacity_plan(_require_mandi(user))
+
+
+@router.get("/heatmap")
+def heatmap_ep(user: dict = Depends(staff_auth)):
+    from .twin import bottleneck_heatmap
+    return bottleneck_heatmap(_require_mandi(user))
+
+
+@router.get("/quantity-forecast")
+def quantity_forecast_ep(user: dict = Depends(staff_auth)):
+    from .twin import quantity_forecast
+    return quantity_forecast(_require_mandi(user))
+
+
+@router.get("/briefing")
+def briefing_ep(user: dict = Depends(staff_auth)):
+    from .copilot import staff_briefing
+    return staff_briefing(_require_mandi(user))
+
+
+@router.get("/daily-report")
+def daily_report_ep(user: dict = Depends(staff_auth)):
+    from .copilot import daily_report
+    return daily_report(_require_mandi(user))
+
+
+@router.get("/model-health")
+def model_health_ep(user: dict = Depends(staff_auth)):
+    from .copilot import model_health
+    return model_health()
+
+
+@router.get("/insider")
+def insider_ep(user: dict = Depends(staff_auth)):
+    from .copilot import insider_threat
+    return {"alerts": insider_threat(_require_mandi(user)),
+            "note": "AI-assisted behavioural flags; admin review required before any action"}
+
+
+@router.get("/trust-score")
+def trust_ep(user: dict = Depends(staff_auth)):
+    from .copilot import trust_score
+    return trust_score(_require_mandi(user))
+
+
+class EmergencyIn(BaseModel):
+    active: bool
+    reason: str = ""
+    alternatives: list[str] = []
+
+
+@router.post("/emergency-mode")
+def emergency_mode(body: EmergencyIn, user: dict = Depends(staff_auth)):
+    """Disaster protocol: freeze bookings, notify all pre-arrivals, point to alternatives."""
+    from .audit import log_event
+    from .db import execute, now_iso
+    from .notify import send_sms
+    mandi_id = _require_mandi(user)
+    status = "CLOSED" if body.active else "OPEN"
+    note = ("EMERGENCY: " + body.reason)[:200] if body.active else ""
+    execute(
+        "INSERT INTO mandi_status (mandi_id, status, note, updated_at) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(mandi_id) DO UPDATE SET status = ?, note = ?, updated_at = ?",
+        (mandi_id, status, note, now_iso(), status, note, now_iso()),
+    )
+    notified = 0
+    if body.active:
+        snap = get_snapshot(mandi_id)
+        for q in snap["queue"]:
+            if q["queue_group"] in ("UPCOMING", "ARRIVED"):
+                t = query_one("SELECT * FROM tickets WHERE id = ?", (q["ticket_id"],))
+                if t:
+                    send_sms(t["phone"], t["lang"], "NO_SHOW_REMINDER",
+                             {"token": t["token"]}, t["id"])  # closure notice (template reused)
+                    notified += 1
+    log_event(mandi_id, f"STAFF:{user['username']}", "EMERGENCY_MODE_" + ("ON" if body.active else "OFF"),
+              {"reason": body.reason, "notified": notified}, None)
+    return {"ok": True, "emergency": body.active, "bookings_frozen": body.active,
+            "farmers_notified": notified,
+            "alternatives": body.alternatives or [],
+            "note": "Affected farmers directed to alternative centres per procurement rules"}
 
 
 # --------------------------- demo autopilot ------------------------------- #

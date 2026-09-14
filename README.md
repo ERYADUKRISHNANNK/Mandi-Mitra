@@ -52,6 +52,20 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | **Mandi performance score** | ✅ working | Composite score + top-bottleneck recommendation for administrators |
 | **System health monitor** | ✅ working | National service board + online/offline mandi counts |
 | **Reschedule / cancel / auto-fill** | ✅ working | Full booking lifecycle; profile auto-fill from verified history |
+| **🔮 Digital Twin simulator** | ✅ working | Simulate the rest of the day under any scenario (counters, arrival surge) in milliseconds — predicted end-of-day queue, peak queue, ETA impact — before deciding |
+| **AI Capacity Planner** | ✅ working | Tomorrow's expected farmers/volume/peak window → recommended counters, staff and slot capacity |
+| **Bottleneck heatmap** | ✅ working | Where waiting farmers are held, stage by stage, with the primary bottleneck named |
+| **Quantity forecast** | ✅ working | Received MT, expected remaining, projected end-of-day procurement volume |
+| **Staff Copilot briefing** | ✅ working | Morning intelligence: expected load, peak window, recommended counters, payments needing attention, SLA breaches now |
+| **Auto daily report** | ✅ working | One-click generated report: served/completed/no-shows/avg wait/peak hour/payments/bottleneck + AI recommendation |
+| **AI model monitoring** | ✅ working | ETA accuracy %, MAE, sample count, declared retrain policy — self-learning story backed by numbers |
+| **Insider-threat review** | ✅ working | Behavioural flags on staff accounts (manual interventions, unusual hours) — AI-assisted, human decides |
+| **Mandi Trust Score** | ✅ working | Transparent weighted composite (queue efficiency, payment reliability, information accuracy, grievance resolution, farmer rating) |
+| **Farmer procurement passport** | ✅ working | Per-farmer history: visits, completions, earnings, avg time — per crop, private to the farmer |
+| **Explain My Payment** | ✅ working | 5-step checklist from real records (approval → bank confirmation) — never invented, flags delay review |
+| **Voice-to-action booking** | ✅ working | "Book tomorrow at the nearest mandi" → AI proposes, **explicit confirmation required** before anything is booked |
+| **AI grievance triage** | ✅ working | Classifies category + priority from text (HIGH routes to district officer) and files an MM-GRV case |
+| **Emergency Procurement Mode** | ✅ working | One click freezes bookings, marks the centre CLOSED, notifies affected farmers, points to alternatives |
 
 ## 🚀 Run it (2 terminals, ~1 minute)
 
@@ -81,7 +95,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **61 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill and reschedule.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **76 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score and emergency mode.
 
 ## 🎬 5-minute demo script
 
@@ -91,6 +105,8 @@ Or double-click **`start_all.bat`** (Windows).
 4. **Transparency (1 min)** — complete a farmer's journey → receipt with **hash + chain verified ✅**; show admin **audit trail** per token.
 5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
 
+**Wave-5 demo beats (pick 1–2):** run the **Digital Twin** ("×2 arrivals, 2 counters → projected peak queue 14") before opening a counter; fire the **⚡ Congestion scenario** and watch the copilot briefing, SLA banner and heatmap turn red together; use **voice booking** ("book tomorrow at the nearest mandi" → AI proposal → explicit confirm); open **Daily report** for the auto-generated bottleneck recommendation.
+
 ## 🧠 The four AI modules (all explainable)
 
 1. **Wait-time ETA** — ridge regression on hourly history; R² + sample count exposed; analytic fallback declared; confidence % on every ETA
@@ -98,7 +114,16 @@ Or double-click **`start_all.bat`** (Windows).
 3. **Anomaly detection** — rules + IsolationForest, review-only flags
 4. **No-show risk** — transparent weighted signals with reasons on every chip
 
-Plus: **Best-Mandi-For-Me** ranking (total journey time + availability + reputation) and the **"Why?" engine** that explains waits from real operational drivers.
+Plus: **Best-Mandi-For-Me** ranking (total journey time + availability + reputation), the **"Why?" engine** that explains waits from real operational drivers, and **model monitoring** (ETA accuracy %, MAE, declared retrain policy) — the self-learning story backed by numbers.
+
+## 🔮 Intelligence layers (the demo story)
+
+Mandi Mitra isn't a feature dump — it's four coherent intelligence layers over one platform:
+
+1. **Farmer Intelligence** — *where should I go and when should I leave?* → discovery + best-mandi AI + leave-home alerts + voice booking
+2. **Queue Intelligence** — *who is next and what will the wait be?* → dynamic queue engine + ETA deltas + no-show risk + smart slots
+3. **Mandi Intelligence** — *where is the bottleneck and what should staff do?* → digital twin + capacity planner + heatmap + copilot briefing + daily report
+4. **Government Intelligence** — *where are congestion, delays and grievances occurring?* → command centre + trust scores + insider review + system health + triage
 
 ## 📚 Knowledge layer (RAG + MCP)
 
@@ -120,7 +145,9 @@ Most teams will demo a booking app with a token number. Mandi Mitra demos an **o
 | "Will fraud happen?" | Not considered | Booking-velocity, no-show, stuck-stage, irregularity and outlier flags for review |
 | "Does it work offline?" | No | Service-worker cached status + offline banner |
 | "How does govt deploy it?" | "…an app" | Multi-tenant by mandi_id, district command centre, CSC adoption path, CSV governance reports |
-| "Is it tested?" | Manual clicking | 41-check automated end-to-end suite, all passing |
+| "Is it tested?" | Manual clicking | 76-check automated end-to-end suite, all passing |
+| "Can it plan ahead, not just react?" | Dashboard-only | Digital-twin simulation, AI capacity planner, quantity forecast, congestion waves |
+| "What if staff misbehave?" | Not considered | Behavioural insider flags (review-only) + immutable audit trail + emergency mode |
 
 ## 🏗 Architecture
 

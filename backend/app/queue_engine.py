@@ -281,7 +281,7 @@ def _detect_payment_delays(mandi_id: str):
 def _public_snapshot(snapshot: dict) -> dict:
     queue_view = [
         {
-            "ticket_id": r["id"],
+            "ticket_id": r.get("id") or r.get("ticket_id"),
             "token": r["token"],
             "status": r["status"],
             "position": r["position"],
@@ -318,10 +318,13 @@ def _public_snapshot(snapshot: dict) -> dict:
 # --- queries ----------------------------------------------------------------
 
 def get_snapshot(mandi_id: str):
+    import copy
     snap = QUEUE_SNAPSHOT.get(mandi_id)
     if snap is None:
         snap = recompute_mandi(mandi_id)
-    return _public_snapshot(snap)
+        return _public_snapshot(snap)
+    # Deep-copy: cached snapshots must never be mutated or re-normalized by callers.
+    return _public_snapshot(copy.deepcopy(snap))
 
 
 def get_ticket_public(ticket) -> dict:

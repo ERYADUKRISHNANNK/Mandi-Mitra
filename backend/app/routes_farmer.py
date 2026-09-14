@@ -43,6 +43,7 @@ class BookIn(BaseModel):
     slot_time: str
     lang: str = "ml"
     priority_flag: str | None = None
+    vehicle_type: str | None = None  # TRACTOR | TRUCK | MINI_TRUCK | AUTO | OTHER
 
 
 class IvrIn(BaseModel):
@@ -201,11 +202,12 @@ def book(body: BookIn):
     execute(
         """
         INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
-            slot_date, slot_time, lang, status, priority, priority_flag, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?, ?, ?)
+            slot_date, slot_time, lang, status, priority, priority_flag, vehicle_type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?, ?, ?, ?)
         """,
         (token, body.mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
-         slot_date, body.slot_time, body.lang, priority, body.priority_flag, now_iso()),
+         slot_date, body.slot_time, body.lang, priority, body.priority_flag, body.vehicle_type,
+         now_iso()),
     )
     ticket = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
     log_event(body.mandi_id, f"FARMER:{body.phone}", "BOOKING_CREATED",
@@ -606,6 +608,132 @@ def profile(phone: str):
                          "quantity_kg": last["quantity_kg"] if last else 500,
                          "mandi_id": last["mandi_id"] if last else "KL-KOCHI-01"},
             "history": {"bookings": tickets["n"], "completed": tickets["c"]}}
+
+
+# --------------------------- wave-5 farmer features ------------------------ #
+
+@router.get("/passport")
+def farmer_passport(phone: str):
+    """Farmer digital procurement passport: their own history, nothing else."""
+    farmer = query_one("SELECT mm_id, name FROM farmers WHERE phone = ?", (phone,))
+    if not farmer:
+        raise HTTPException(status_code=404, detail="Unknown farmer")
+    rows = query(
+        """
+        SELECT crop, COUNT(*) AS visits, SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+               SUM(CASE WHEN status='COMPLETED' THEN amount ELSE 0 END) AS earned,
+               AVG(CASE WHEN checked_in_at IS NOT NULL AND completed_at IS NOT NULL
+                   THEN (julianday(completed_at) - julianday(checked_in_at)) * 1440 END) AS avg_wait
+        FROM tickets WHERE phone = ? GROUP BY crop
+        """,
+        (phone,),
+    )
+    totals = query_one(
+        """
+        SELECT COUNT(*) AS visits, SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+               SUM(CASE WHEN status='COMPLETED' AND payment_status='COMPLETED' THEN 1 ELSE 0 END) AS paid,
+               AVG(CASE WHEN checked_in_at IS NOT NULL AND completed_at IS NOT NULL
+                   THEN (julianday(completed_at) - julianday(checked_in_at)) * 1440 END) AS avg_wait
+        FROM tickets WHERE phone = ?
+        """,
+        (phone,),
+    )
+    return {"farmer": dict(farmer), "by_crop": [dict(r) for r in rows],
+            "totals": {"visits": totals["visits"], "completed": totals["completed"],
+                       "payments_received": totals["paid"],
+                       "avg_wait_minutes": round(totals["avg_wait"] or 0, 1)}}
+
+
+@router.get("/explain-payment")
+def explain_payment(token: str | None = None, phone: str | None = None):
+    """Explain My Payment: stage checklist from real records — never invented."""
+    t = _find_ticket(token, phone)
+    if not t:
+        raise HTTPException(status_code=404, detail="No booking found")
+    steps = [
+        {"step": "Procurement approved", "done": t["status"] in ("PAYMENT", "COMPLETED")},
+        {"step": "Weight & quality recorded", "done": bool(t["quality_grade"])},
+        {"step": "Amount computed", "done": bool(t["amount"])},
+        {"step": "Payment initiated", "done": t["payment_status"] in ("PROCESSING", "DELAYED", "COMPLETED")},
+        {"step": "Bank confirmation", "done": t["payment_status"] == "COMPLETED",
+         "pending_detail": None if t["payment_status"] == "COMPLETED" else
+         ("flagged for priority review" if t["payment_status"] == "DELAYED"
+          else "awaiting payment workflow confirmation")},
+    ]
+    if t["payment_status"] == "COMPLETED":
+        summary = f"Payment of ₹{int(t['amount'] or 0)} completed. Receipt with tamper-evident hash is in your app."
+    elif t["status"] != "COMPLETED" and t["status"] != "PAYMENT":
+        summary = f"Procurement is still at {t['status'].replace('_',' ').lower()} — payment begins after approval."
+    elif t["payment_status"] == "DELAYED":
+        summary = "Payment crossed the expected window and is flagged for priority review by the mandi officer."
+    else:
+        summary = f"Procurement complete (₹{int(t['amount'] or 0)}). Payment initiated and awaiting confirmation."
+    return {"token": t["token"], "checklist": steps, "summary": summary}
+
+
+class BookingIntentIn(BaseModel):
+    phone: str
+    farmer_name: str = ""
+    crop: str | None = None
+    quantity_kg: float | None = None
+    when: str | None = None      # "tomorrow morning" | "today evening" | "nearest"
+    lat: float | None = None
+    lng: float | None = None
+    confirm: bool = False        # MUST be true on the second call to actually book
+
+
+@router.post("/voice-book")
+def voice_book(body: BookingIntentIn):
+    """Voice-to-action booking with MANDATORY confirmation step.
+    First call returns the proposal; nothing is booked until confirm=true."""
+    from .discovery import best_for_me
+    crop = body.crop or "Paddy"
+    qty = body.quantity_kg or 500
+    if not body.confirm:
+        bfm = best_for_me(body.lat, body.lng, crop, qty)
+        rec = bfm["recommended"]
+        if not rec:
+            return {"stage": "unavailable", "message": "No open centres right now."}
+        slot = (rec["available_slots"] and rec["queue_length"] < 20) and "12:30" or "16:00"
+        return {"stage": "proposal",
+                "proposal": {"mandi_id": rec["mandi_id"], "name": rec["name"],
+                             "crop": crop, "quantity_kg": qty, "slot_time": slot,
+                             "total_journey_minutes": rec["total_journey_minutes"]},
+                "message": (f"{rec['name']} has a {slot} slot, about {rec['total_journey_minutes']} minutes "
+                            f"total. Shall I book it? Say yes to confirm."),
+                "needs_confirmation": True}
+    # Confirmed booking path (reuses /book logic via direct call)
+    rec = best_for_me(body.lat, body.lng, crop, qty)["recommended"]
+    if not rec:
+        raise HTTPException(status_code=409, detail="No open centres")
+    slot = "12:30" if rec["queue_length"] < 20 else "16:00"
+    return book(BookIn(mandi_id=rec["mandi_id"], phone=body.phone,
+                       farmer_name=body.farmer_name or f"Farmer {body.phone[-4:]}",
+                       crop=crop, quantity_kg=qty, slot_time=slot, lang="ml"))
+
+
+@router.post("/triage")
+def grievance_triage(body: GrievanceIn):
+    """AI grievance triage: classifies category + priority from the text."""
+    text = (body.description or "").lower()
+    category = body.category
+    if category == "OTHER":
+        if any(w in text for w in ("wait", "waiting", "hours")):
+            category = "EXCESS_WAIT"
+        elif any(w in text for w in ("pay", "money", "amount")):
+            category = "PAYMENT_DELAY"
+        elif any(w in text for w in ("weight", "weigh")):
+            category = "WEIGHING_ISSUE"
+        elif any(w in text for w in ("quality", "grade", "moisture")):
+            category = "QUALITY_DISPUTE"
+    priority = "HIGH" if any(w in text for w in ("hour", "urgent", "nobody", "harass", "not telling")) else \
+               "MEDIUM" if any(w in text for w in ("delay", "wrong", "issue", "problem")) else "LOW"
+    from .feedback import file_grievance
+    result = file_grievance(body.token, body.phone or "unknown", body.mandi_id or "KL-KOCHI-01",
+                            category, body.description)
+    result["priority"] = priority
+    result["routed_to"] = "district officer" if priority == "HIGH" else "mandi staff"
+    return result
 
 
 @router.get("/mandis")

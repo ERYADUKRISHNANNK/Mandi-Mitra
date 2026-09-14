@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     risk_band           TEXT,
     escalated           INTEGER NOT NULL DEFAULT 0,
     alert_ack_at        TEXT,
+    vehicle_type        TEXT,
     stage_started_at    TEXT,
     quality_grade       TEXT,
     amount              REAL,
@@ -157,6 +158,8 @@ CREATE TABLE IF NOT EXISTS grievances (
     status      TEXT NOT NULL DEFAULT 'SUBMITTED'
                 CHECK (status IN ('SUBMITTED','ASSIGNED','UNDER_REVIEW','ACTION_TAKEN','RESOLVED')),
     assigned_to TEXT,
+    priority    TEXT NOT NULL DEFAULT 'MEDIUM'
+                CHECK (priority IN ('LOW','MEDIUM','HIGH')),
     resolution  TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
@@ -243,6 +246,8 @@ def init_db():
         "ALTER TABLE tickets ADD COLUMN risk_band TEXT",
         "ALTER TABLE tickets ADD COLUMN escalated INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE tickets ADD COLUMN alert_ack_at TEXT",
+        "ALTER TABLE tickets ADD COLUMN vehicle_type TEXT",
+        "ALTER TABLE grievances ADD COLUMN priority TEXT NOT NULL DEFAULT 'MEDIUM'",
     ):
         try:
             conn.execute(stmt)
