@@ -504,6 +504,7 @@ class AssistantIn(BaseModel):
     lat: float | None = None
     lng: float | None = None
     crop: str | None = None
+    lang: str | None = None
 
 
 @router.post("/assistant")
@@ -512,7 +513,7 @@ def assistant(body: AssistantIn):
     tools — never free-form invention. Every dynamic answer cites its tool."""
     from .assistant import assistant_reply
     user = {"role": body.role, "token": body.token, "phone": body.phone,
-            "lat": body.lat, "lng": body.lng, "crop": body.crop}
+            "lat": body.lat, "lng": body.lng, "crop": body.crop, "lang": body.lang}
     return assistant_reply(body.question, user)
 
 

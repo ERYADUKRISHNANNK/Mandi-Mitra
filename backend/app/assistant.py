@@ -16,6 +16,96 @@ import re
 from .db import query, query_one
 
 # --------------------------------------------------------------------------
+# Multilingual reply layer — the assistant answers in the farmer's language.
+# --------------------------------------------------------------------------
+
+def detect_lang(text: str) -> str | None:
+    """Script-based language guess: Malayalam, Hindi (Devanagari), Tamil."""
+    if re.search(r"[\u0d00-\u0d7f]", text):
+        return "ml"
+    if re.search(r"[\u0900-\u097f]", text):
+        return "hi"
+    if re.search(r"[\u0b80-\u0bff]", text):
+        return "ta"
+    return None
+
+
+R = {
+    "turn": {
+        "en": "Your token {token} is {status}. Position {pos}, expected wait about {eta} minutes.",
+        "ml": "നിങ്ങളുടെ ടോക്കൺ {token} ഇപ്പോൾ {status}. സ്ഥാനം {pos}, ഏകദേശം {eta} മിനിറ്റ് കാത്തിരുപ്പ്.",
+        "hi": "आपका टोकन {token} अभी {status} है। स्थान {pos}, अनुमानित प्रतीक्षा लगभग {eta} मिनट।",
+        "ta": "உங்கள் டோக்கன் {token} இப்போது {status}. இடம் {pos}, சுமார் {eta} நிமிட காத்திருப்பு.",
+    },
+    "no_booking": {
+        "en": "I couldn't find an active booking for you. Book via app, SMS (BOOK <mandi> <crop> <qty>) or a missed call.",
+        "ml": "നിങ്ങളുടെ സജീവ ബുക്കിംഗ് കണ്ടില്ല. ആപ്പ്, SMS (BOOK <മണ്ഡി> <വിള> <അളവ്>) അല്ലെങ്കിൽ മിസ്സ്ഡ് കോൾ വഴി ബുക്ക് ചെയ്യൂ.",
+        "hi": "आपकी कोई सक्रिय बुकिंग नहीं मिली। ऐप, SMS (BOOK <मंडी> <फसल> <मात्रा>) या मिस्ड कॉल से बुक करें।",
+        "ta": "உங்கள் செயலில் உள்ள பதிவு எதுவும் கிடைக்கவில்லை. ஆப், SMS அல்லது மிஸ்ட் கால் மூலம் பதிவு செய்யுங்கள்.",
+    },
+    "pay_done": {
+        "en": "Your payment of ₹{amt} is complete. The digital receipt with tamper-evident hash is in your app.",
+        "ml": "₹{amt} പേയ്മെന്റ് പൂർത്തിയായി. ടാംപർ-പ്രൂഫ് ഹാഷുള്ള ഡിജിറ്റൽ രസീത് ആപ്പിൽ ഉണ്ട്.",
+        "hi": "₹{amt} का भुगतान पूरा हो गया। टैम्पर-प्रूफ हैश वाली डिजिटल रसीद आपके ऐप में है।",
+        "ta": "₹{amt} பணம் முடிந்தது. டிஜிட்டல் ரசீது உங்கள் ஆப்பில் உள்ளது.",
+    },
+    "pay_proc": {
+        "en": "Procurement is approved (₹{amt}) and payment is in the banking pipeline. You'll get an SMS the moment it lands.",
+        "ml": "വാങ്ങൽ അംഗീകരിച്ചു (₹{amt}), പേയ്മെന്റ് ബാങ്കിംഗ് ഘട്ടത്തിലാണ്. എത്തിയ ഉടൻ SMS ലഭിക്കും.",
+        "hi": "खरीद स्वीकृत है (₹{amt}) और भुगतान बैंकिंग प्रक्रिया में है। आते ही आपको SMS मिलेगा।",
+        "ta": "கொள்முதல் ஒப்புதல் (₹{amt}), பணம் வங்கி செயல்முறையில் உள்ளது. வந்தவுடன் SMS கிடைக்கும்.",
+    },
+    "pay_delay": {
+        "en": "Your payment of ₹{amt} has crossed the normal processing window and is flagged for priority review by the mandi officer.",
+        "ml": "₹{amt} പേയ്മെന്റ് സാധാരണ സമയത്തിനപ്പുറം വൈകി; മണ്ഡി ഉദ്യോഗസ്ഥന്റെ മുൻഗണനാ പരിശോധനയിലാണ്.",
+        "hi": "₹{amt} का भुगतान सामान्य समय से अधिक देर का है; मंडी अधिकारी की प्राथमिकता समीक्षा में है।",
+        "ta": "₹{amt} பணம் சாதாரண நேரத்தை தாண்டி தாமதமாகியுள்ளது; மண்டி அதிகாரியின் முன்னுரிமை ஆய்வில் உள்ளது.",
+    },
+    "pay_need": {
+        "en": "Payment tracking needs your token or registered phone.",
+        "ml": "പേയ്മെന്റ് പരിശോധിക്കാൻ ടോക്കൺ അല്ലെങ്കിൽ രജിസ്റ്റർ ചെയ്ത ഫോൺ വേണം.",
+        "hi": "भुगतान जानने के लिए टोकन या रजिस्टर्ड फोन चाहिए।",
+        "ta": "பணம் அறிய டோக்கன் அல்லது பதிவு செய்த ஃபோன் தேவை.",
+    },
+    "nearby": {
+        "en": "Centres ranked by total journey time: {names}.",
+        "ml": "ആകെ യാത്രാ സമയം അടിസ്ഥാനമാക്കിയുള്ള കേന്ദ്രങ്ങൾ: {names}.",
+        "hi": "कुल यात्रा समय के अनुसार केंद्र: {names}.",
+        "ta": "மொத்த பயண நேர அடிப்படையில் மையங்கள்: {names}.",
+    },
+    "grievance": {
+        "en": "You can raise a grievance from the app (Raise a concern) or by SMS. You'll get an MM-GRV tracking ID and the status timeline is visible to you end-to-end.",
+        "ml": "ആപ്പിൽ (Raise a concern) അല്ലെങ്കിൽ SMS വഴി പരാതി നൽകാം. MM-GRV ട്രാക്കിംഗ് ഐഡി ലഭിക്കും; നില മുഴുവനായി കാണാം.",
+        "hi": "ऐप (Raise a concern) या SMS से शिकायत दर्ज करें। MM-GRV ट्रैकिंग आईडी मिलेगी और पूरी स्थिति आप देख सकते हैं।",
+        "ta": "ஆப் அல்லது SMS மூலம் புகார் அளிக்கலாம். MM-GRV கண்காணிப்பு ஐடி கிடைக்கும்; நிலை முழுவதையும் காணலாம்.",
+    },
+    "fallback": {
+        "en": "I can help with your turn, payment status, required documents, nearby centres and grievances. For anything else, contact the mandi officer.",
+        "ml": "ടേൺ, പേയ്മെന്റ് നില, ആവശ്യമായ രേഖകൾ, അടുത്തുള്ള കേന്ദ്രങ്ങൾ, പരാതികൾ എന്നിവയിൽ സഹായിക്കാം. മറ്റെല്ലാം മണ്ഡി ഉദ്യോഗസ്ഥനെ സമീപിക്കൂ.",
+        "hi": "बारी, भुगतान स्थिति, दस्तावेज़, नज़दीकी केंद्र और शिकायतों में मदद कर सकता हूँ। अन्य सहायता के लिए मंडी अधिकारी से संपर्क करें।",
+        "ta": "முறை, பணம், ஆவணங்கள், அருகிலுள்ள மையங்கள், புகார்கள் என உதவ முடியும். மற்றவற்றுக்கு மண்டி அதிகாரியை தொடர்பு கொள்ளுங்கள்.",
+    },
+}
+
+
+def _r(key: str, lang: str, **kw) -> str:
+    return R[key].get(lang or "en", R[key]["en"]).format(**kw)
+
+
+def _status_word(status: str, lang: str) -> str:
+    words = {
+        "en": {"SLOT_BOOKED": "booked", "ARRIVED": "checked in", "WEIGHING": "at weighing",
+               "QUALITY_CHECK": "at quality check", "PAYMENT": "at payment", "COMPLETED": "completed"},
+        "ml": {"SLOT_BOOKED": "ബുക്ക് ചെയ്തു", "ARRIVED": "എത്തി", "WEIGHING": "തൂക്കത്തിൽ",
+               "QUALITY_CHECK": "ഗുണനിലവാര പരിശോധനയിൽ", "PAYMENT": "പേയ്മെന്റിൽ", "COMPLETED": "പൂർത്തിയായി"},
+        "hi": {"SLOT_BOOKED": "बुक है", "ARRIVED": "पहुँच गए", "WEIGHING": "तौल पर",
+               "QUALITY_CHECK": "गुणवत्ता जाँच पर", "PAYMENT": "भुगतान पर", "COMPLETED": "पूर्ण"},
+        "ta": {"SLOT_BOOKED": "பதிவு ஆனது", "ARRIVED": "வந்துவிட்டது", "WEIGHING": "தராசில்",
+               "QUALITY_CHECK": "தர சோதனையில்", "PAYMENT": "பணப் படியில்", "COMPLETED": "முடிந்தது"},
+    }
+    return words.get(lang or "en", words["en"]).get(status, status.replace("_", " ").lower())
+
+# --------------------------------------------------------------------------
 # Knowledge base (seeded by seed.py; document store with sources)
 # --------------------------------------------------------------------------
 
@@ -153,17 +243,25 @@ def call_tool(name: str, args: dict, user: dict) -> dict:
 # --------------------------------------------------------------------------
 
 INTENTS = [
-    ("turn", [r"my turn", r"when.*turn", r"queue position", r"how long", r"eta", r"wait"]),
-    ("payment", [r"payment", r"paid", r"amount", r"money"]),
-    ("documents", [r"document", r"paper", r"carry", r"proof"]),
-    ("nearby", [r"nearby", r"nearest", r"which mandi", r"other cent", r"less crowd"]),
-    ("procedure", [r"process", r"how.*procure", r"steps", r"quality check", r"weighing"]),
-    ("grievance", [r"complaint", r"grievance", r"issue.*report", r"problem"]),
+    ("turn", [r"my turn", r"when.*turn", r"queue position", r"how long", r"eta", r"wait",
+              # ml: turn / when / queue / wait   hi: bari / kab / kataar   ta: murai / eppodhu
+              r"ടേൺ", r"എപ്പോൾ", r"ക്യൂ", r"കാത്തിരുപ്പ", r"ബാരി|बारी", r"कब", r"कतार", r"मुरै|முறை", r"எப்போது", r"வரிசை"]),
+    ("payment", [r"payment", r"paid", r"amount", r"money",
+                 r"പേയ്മെന്റ്", r"പണം", r"തുക", r"भुगतान", r"पैसा", r"பணம்", r"தொகை"]),
+    ("documents", [r"document", r"paper", r"carry", r"proof",
+                   r"രേഖ", r"ദസ്ത", r"कागज़", r"दस्तावेज़", r"ஆவண"]),
+    ("nearby", [r"nearby", r"nearest", r"which mandi", r"other cent", r"less crowd",
+                r"അടുത്ത", r"ഏത് കേന്ദ്ര", r"नज़दीक", r"அருகில", r"எந்த மையம்"]),
+    ("procedure", [r"process", r"how.*procure", r"steps", r"quality check", r"weighing",
+                   r"ഗുണനിലവാര", r"തൂക്ക", r"गुणवत्ता", r"तौल", r"தரம்", r"தராசு"]),
+    ("grievance", [r"complaint", r"grievance", r"issue.*report", r"problem",
+                   r"പരാതി", r"शिकायत", r"புகார்"]),
 ]
 
 
 def assistant_reply(question: str, user: dict) -> dict:
     q = question.lower()
+    lang = user.get("lang") or detect_lang(question)
     tool_calls = []
 
     def use(name, args):
@@ -175,27 +273,23 @@ def assistant_reply(question: str, user: dict) -> dict:
     if intent == "turn" and (user.get("token") or user.get("phone")):
         r = use("get_farmer_status", {"token": user.get("token"), "phone": user.get("phone")})
         if "error" not in r:
-            pos = r["position"]
-            eta = r["eta_minutes"]
-            return {"reply": f"Your token {r['token']} is {r['status'].replace('_', ' ').lower()}. "
-                             f"Position {pos}, expected wait about {eta} minutes.",
+            return {"reply": _r("turn", lang, token=r["token"],
+                               status=_status_word(r["status"], lang),
+                               pos=r["position"], eta=r["eta_minutes"]),
                     "tool_calls": tool_calls}
-        return {"reply": "I couldn't find an active booking for you. Book via app, SMS (BOOK <mandi> <crop> <qty>) or a missed call.",
-                "tool_calls": tool_calls}
+        return {"reply": _r("no_booking", lang), "tool_calls": tool_calls}
 
     if intent == "payment" and (user.get("token") or user.get("phone")):
         r = use("get_farmer_status", {"token": user.get("token"), "phone": user.get("phone")})
         if "error" not in r:
+            amt = int(r["amount"] or 0)
             if r["payment_status"] == "COMPLETED":
-                return {"reply": f"Your payment of ₹{int(r['amount'] or 0)} is complete. The digital receipt with tamper-evident hash is in your app.",
-                        "tool_calls": tool_calls}
+                return {"reply": _r("pay_done", lang, amt=amt), "tool_calls": tool_calls}
             if r["payment_status"] == "PROCESSING":
-                return {"reply": f"Procurement is approved (₹{int(r['amount'] or 0)}) and payment is in the banking pipeline. You'll get an SMS the moment it lands.",
-                        "tool_calls": tool_calls}
+                return {"reply": _r("pay_proc", lang, amt=amt), "tool_calls": tool_calls}
             if r["payment_status"] == "DELAYED":
-                return {"reply": f"Your payment of ₹{int(r['amount'] or 0)} has crossed the normal processing window and is flagged for priority review by the mandi officer.",
-                        "tool_calls": tool_calls}
-        return {"reply": "Payment tracking needs your token or registered phone.", "tool_calls": tool_calls}
+                return {"reply": _r("pay_delay", lang, amt=amt), "tool_calls": tool_calls}
+        return {"reply": _r("pay_need", lang), "tool_calls": tool_calls}
 
     if intent == "documents":
         hits = rag_search("documents required farmer procurement")
@@ -207,15 +301,13 @@ def assistant_reply(question: str, user: dict) -> dict:
     if intent == "nearby":
         r = use("find_nearby_centres", {"lat": user.get("lat"), "lng": user.get("lng"),
                                         "crop": user.get("crop")})
-        names = ", ".join(f"{c['name']} ({c['queue_length']} in queue, ~{c['total_journey_minutes']}m total)"
+        names = ", ".join(f"{c['name']} ({c['queue_length']}, ~{c['total_journey_minutes']}m)"
                           for c in r["centres"][:3])
-        return {"reply": f"Centres ranked by total journey time: {names}.",
+        return {"reply": _r("nearby", lang, names=names),
                 "tool_calls": tool_calls}
 
     if intent == "grievance":
-        return {"reply": "You can raise a grievance from the app (Raise a concern) or by SMS. "
-                         "You'll get an MM-GRV tracking ID and the status timeline is visible to you end-to-end.",
-                "tool_calls": tool_calls}
+        return {"reply": _r("grievance", lang), "tool_calls": tool_calls}
 
     # Default: RAG over official knowledge base.
     hits = rag_search(question)
@@ -224,6 +316,5 @@ def assistant_reply(question: str, user: dict) -> dict:
         return {"reply": f"From the official knowledge base ('{h['title']}', {h['source']}, updated {h['updated']}): {h['content'][:280]}",
                 "sources": hits, "tool_calls": tool_calls}
 
-    return {"reply": "I can help with your turn, payment status, required documents, nearby centres and grievances. "
-                     "For anything else, contact the mandi officer.",
+    return {"reply": _r("fallback", lang),
             "tool_calls": tool_calls}

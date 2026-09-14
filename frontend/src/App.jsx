@@ -65,8 +65,12 @@ function FarmerView({ lang }) {
   const [notifCount, setNotifCount] = useState(0)
   const [bfm, setBfm] = useState(null)
   const [assistOpen, setAssistOpen] = useState(false)
-  const [chat, setChat] = useState([{ role: 'bot', text: 'Namaskaram! Ask me: "When is my turn?", "What documents do I need?", "Where is the least crowded centre?"' }])
+  const [chat, setChat] = useState([{ role: 'bot', text: STR[lang].chatGreeting }])
   const [chatQ, setChatQ] = useState('')
+  useEffect(() => {
+    // Language switch: reset the conversation so greeting + voice follow the new language.
+    setChat([{ role: 'bot', text: STR[lang].chatGreeting }])
+  }, [lang])
   const wsRef = useRef(null)
 
   useEffect(() => {
@@ -225,11 +229,11 @@ function FarmerView({ lang }) {
     try {
       const r = await api.post('/farmer/assistant', {
         question, token: ticket?.token, phone: ticket?.phone || phone,
-        role: 'farmer', crop,
+        role: 'farmer', crop, lang,
       })
       setChat((c) => [...c, { role: 'bot', text: r.reply }])
       speak(r.reply, lang)
-    } catch { setChat((c) => [...c, { role: 'bot', text: 'Connection issue — try again.' }]) }
+    } catch { setChat((c) => [...c, { role: 'bot', text: t.connIssue }]) }
   }
 
   if (ticket && status) {
@@ -281,22 +285,22 @@ function FarmerView({ lang }) {
           </div>
           <button className="ghost" style={{ marginBottom: 8 }}
                   onClick={() => { const v = !simple; setSimple(v); localStorage.setItem(SIMPLE_KEY, v ? '1' : '0') }}>
-            {simple ? '📖 Detailed mode' : '🟢 Simple mode'}
+            {simple ? t.detailedMode : t.simpleMode}
           </button>
           {simple ? (
             <div className="simple-grid">
-              <div className="simple-btn">📅 <span>MY TURN</span><b>{isServing ? 'NOW' : `#${pos} · ${eta === '—' ? '—' : eta + 'm'}`}</b></div>
+              <div className="simple-btn">📅 <span>{t.sMyTurn}</span><b>{isServing ? 'NOW' : `#${pos} · ${eta === '—' ? '—' : eta + 'm'}`}</b></div>
               {dep?.advised_departure_hhmm && status.status === 'SLOT_BOOKED' &&
-                <div className="simple-btn"><span>START AT</span><b>{dep.advised_departure_hhmm}</b></div>}
-              <div className="simple-btn">💰 <span>PAYMENT</span><b>{status.payment_status || '—'}</b></div>
-              <button className="simple-btn" onClick={() => speak(`Your token ${status.token}. Position ${pos}. Expected wait ${eta} minutes.`, lang)}>
-                🔊 <span>LISTEN</span><b>▶</b>
+                <div className="simple-btn"><span>{t.sStartAt}</span><b>{dep.advised_departure_hhmm}</b></div>}
+              <div className="simple-btn">💰 <span>{t.sPayment}</span><b>{status.payment_status || '—'}</b></div>
+              <button className="simple-btn" onClick={() => speak(t.listenSpoken(status.token, pos, eta === '—' ? '—' : eta), lang)}>
+                🔊 <span>{t.simpleListen}</span><b>▶</b>
               </button>
-              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask('Which centre is fastest for me right now?') }}>
-                📍 <span>WHERE TO GO?</span><b>⭐</b>
+              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask(t.askFastest) }}>
+                📍 <span>{t.whereGo}</span><b>⭐</b>
               </button>
-              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask('What documents do I need and how does procurement work?') }}>
-                ❓ <span>HELP</span><b>?</b>
+              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask(t.askDocs) }}>
+                ❓ <span>{t.helpLabel}</span><b>?</b>
               </button>
             </div>
           ) : (
@@ -373,10 +377,7 @@ function FarmerView({ lang }) {
 
         <div className="row-btns">
           <button className="ghost" onClick={notifications}>💬 {t.notifications}</button>
-          <button className="ghost" onClick={() => {
-            const pos = isServing ? 'now' : `position ${pos}`
-            speak(`Your token ${status.token}. ${pos}. Expected wait ${eta} minutes.`, lang)
-          }}>🔊 Listen (voice)</button>
+          <button className="ghost" onClick={() => speak(t.listenSpoken(status.token, isServing ? 'NOW' : pos, eta === '—' ? '—' : eta), lang)}>{t.listenBtn}</button>
           <button className="ghost" onClick={async () => {
             const r = await api.post('/farmer/ivr/call', { phone: status.phone, token: status.token, lang })
             speak(r.ivr_says, lang)
@@ -385,19 +386,19 @@ function FarmerView({ lang }) {
         </div>
         <p className="muted center">{t.bookBySms}</p>
         {notifCount < 0 && <span />}
-        <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
+        <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} t={t} />
       </div>
     )
   }
 
   return (
     <div className="fade-in">
-      <button className="ghost assist-fab" onClick={() => setAssistOpen(!assistOpen)}>🤖 Ask Mandi Mitra</button>
-      <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
+      <button className="ghost assist-fab" onClick={() => setAssistOpen(!assistOpen)}>{t.askMitra}</button>
+      <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} t={t} />
       <Card className="hero copilot">
-        <h3>🧠 {lang === 'ml' ? 'എവിടെയാണ് ഇന്ന് വേഗം?' : 'Where should I sell today?'}</h3>
+        <h3>🧠 {t.whereSell}</h3>
         <div className="row-btns" style={{ marginBottom: 6 }}>
-          {["I have 20 bags of paddy for today 3 pm", "എനിക്ക് ഇന്ന് 10 സഞ്ചി നെല്ല് വേണം", "Where is the queue shortest for 500 kg wheat?"].map((s) => (
+          {t.samples.map((s) => (
             <button key={s} className="mini" onClick={() => { setCopilotText(s); askCopilot(s) }}>💬 {s.slice(0, 28)}…</button>
           ))}
           <button className="ghost" onClick={async () => {
@@ -406,15 +407,15 @@ function FarmerView({ lang }) {
               saveTicket(b.token, b.phone); setTicket({ token: b.token, phone: b.phone })
               await loadStatus({ token: b.token, phone: b.phone })
             } catch (e) { setError(e.message) }
-          }}>🎬 1-tap demo booking</button>
+          }}>{t.demoBook}</button>
         </div>
-        <p className="muted">Just say it in your own words — the copilot does the rest.</p>
+        <p className="muted">{t.copilotHint}</p>
         <div className="grid2">
           <input value={copilotText} onChange={(e) => setCopilotText(e.target.value)}
                  onKeyDown={(e) => e.key === 'Enter' && askCopilot(copilotText)}
-                 placeholder={lang === 'ml' ? '“ഇന്ന് 10 സഞ്ചി നെല്ല് കൊണ്ടുപോകണം”' : '"I have 20 bags of paddy for today 3 pm"'} />
+                 placeholder={t.copilotPh} />
           <div className="row-btns">
-            <button className="primary" style={{ marginTop: 0 }} onClick={() => askCopilot(copilotText)}>Get my plan</button>
+            <button className="primary" style={{ marginTop: 0 }} onClick={() => askCopilot(copilotText)}>{t.getPlan}</button>
             <button className="ghost" onClick={micListen} title="Speak in your language">🎙</button>
           </div>
         </div>
@@ -424,20 +425,20 @@ function FarmerView({ lang }) {
             {copilotPlan.plan && (
               <>
                 <div className="grid4">
-                  <Stat label="Leave home" value={copilotPlan.plan.leave_at_hhmm} tone="ok" />
-                  <Stat label="Queue ahead" value={copilotPlan.plan.queue_length} />
+                  <Stat label={t.sStartAt} value={copilotPlan.plan.leave_at_hhmm} tone="ok" />
+                  <Stat label={t.position} value={copilotPlan.plan.queue_length} />
                   <Stat label="Expected wait" value={`${Math.round(copilotPlan.plan.expected_wait_minutes)}m`} />
                   {copilotPlan.plan.estimated_value && <Stat label="Est. value" value={`₹${copilotPlan.plan.estimated_value.toLocaleString('en-IN')}`} tone="ok" />}
                 </div>
-                <p className="muted" style={{ fontSize: '0.8rem' }}>📄 Carry: {copilotPlan.plan.documents}</p>
-                {copilotPlan.assumptions.length > 0 && <p className="muted" style={{ fontSize: '0.75rem' }}>Note: {copilotPlan.assumptions.join(', ')}</p>}
+                <p className="muted" style={{ fontSize: '0.8rem' }}>📄 {t.carry}: {copilotPlan.plan.documents}</p>
+                {copilotPlan.assumptions.length > 0 && <p className="muted" style={{ fontSize: '0.75rem' }}>{t.note}: {copilotPlan.assumptions.join(', ')}</p>}
                 <div className="grid2">
-                  <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Mobile number to book" inputMode="numeric" />
-                  <button className="primary" onClick={bookPlan} disabled={phone.length !== 10}>✅ Book this plan</button>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder={t.mobileToBook} inputMode="numeric" />
+                  <button className="primary" onClick={bookPlan} disabled={phone.length !== 10}>{t.bookPlan}</button>
                 </div>
               </>
             )}
-            <p className="muted" style={{ fontSize: '0.75rem' }}>Plan confidence {Math.round((copilotPlan.confidence || 0) * 100)}%</p>
+            <p className="muted" style={{ fontSize: '0.75rem' }}>{t.planConf} {Math.round((copilotPlan.confidence || 0) * 100)}%</p>
           </div>
         )}
       </Card>
@@ -457,7 +458,7 @@ function FarmerView({ lang }) {
               )}
             </div>
             <button className="mini" onClick={() => { setMandiId(bfm.recommended.mandi_id); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
-              Book here
+              {t.bookHere}
             </button>
           </div>
           <div className="muted" style={{ fontSize: '0.75rem' }}>{bfm.why.join(' · ')}</div>
@@ -487,7 +488,7 @@ function FarmerView({ lang }) {
         </div>
         <label>{t.name}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rajan Kumar" />
-        <label>🚚 Vehicle / load (helps unloading prep)</label>
+        <label>{t.vehicle}</label>
         <select value={vehicle} onChange={(e) => setVehicle(e.target.value)}>
           <option value="">— Not specified —</option>
           <option>Tractor</option>
@@ -496,7 +497,7 @@ function FarmerView({ lang }) {
           <option>Auto</option>
           <option>Other</option>
         </select>
-        <label>📱 Mobile number</label>
+        <label>{t.mobile}</label>
         <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                placeholder="9876500000" inputMode="numeric" />
         {!phone && <p className="muted">Booking confirmation and SMS/IVR alerts go to this number.</p>}
@@ -515,7 +516,7 @@ function FarmerView({ lang }) {
               </button>
             ))}
           </div>
-          <label>♿ Priority request <span className="muted">(elderly / disabled / small holder get queue precedence)</span></label>
+          <label>{t.priority}</label>
           <select value={priority} onChange={(e) => setPriority(e.target.value)}>
             <option value="">— None —</option>
             <option value="ELDERLY">Senior citizen (60+)</option>
@@ -1237,12 +1238,12 @@ function MandiMap({ centres }) {
   )
 }
 
-function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask }) {
+function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask, t }) {
   if (!open) return null
   return (
     <div className="chat-panel">
       <div className="chat-head">
-        <b>🤖 Mandi Mitra Assistant</b>
+        <b>{t.assistantTitle}</b>
         <button className="mini" onClick={() => setOpen(false)}>×</button>
       </div>
       <div className="chat-body">
@@ -1251,14 +1252,14 @@ function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask }) {
         ))}
       </div>
       <div className="chat-quick">
-        {["When is my turn?", "What documents do I need?", "Why is my payment pending?", "Least crowded centre?"].map((q) => (
+        {t.chatQuick.map((q) => (
           <button key={q} className="mini" onClick={() => ask(q)}>{q}</button>
         ))}
       </div>
       <div className="chat-input">
         <input value={chatQ} onChange={(e) => setChatQ(e.target.value)}
-               onKeyDown={(e) => e.key === 'Enter' && ask(chatQ)} placeholder="Ask anything…" />
-        <button className="mini" onClick={() => ask(chatQ)}>Send</button>
+               onKeyDown={(e) => e.key === 'Enter' && ask(chatQ)} placeholder={t.chatPh} />
+        <button className="mini" onClick={() => ask(chatQ)}>{t.chatSend}</button>
       </div>
     </div>
   )
