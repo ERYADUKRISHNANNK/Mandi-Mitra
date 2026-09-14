@@ -517,6 +517,7 @@ def national_heatmap_ep(user: dict = Depends(admin_auth)):
         ts = trust_score(m["id"])
         centres.append({
             "mandi_id": m["id"], "name": m["name"], "district": m["district"],
+            "state": m["state"],
             "congestion": "HIGH" if s["queue_length"] >= 25 else "MODERATE" if s["queue_length"] >= 10 else "LOW",
             "queue_length": s["queue_length"],
             "procured_mt": qf["received_mt"],

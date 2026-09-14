@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS mandis (
     id        TEXT PRIMARY KEY,
     name      TEXT NOT NULL,
     district  TEXT NOT NULL,
+    state     TEXT NOT NULL DEFAULT 'Kerala',
     lat       REAL NOT NULL,
     lng       REAL NOT NULL,
     opens_at  TEXT NOT NULL DEFAULT '08:00',
@@ -249,6 +250,7 @@ def init_db():
         "ALTER TABLE tickets ADD COLUMN vehicle_type TEXT",
         "ALTER TABLE grievances ADD COLUMN priority TEXT NOT NULL DEFAULT 'MEDIUM'",
         "ALTER TABLE tickets ADD COLUMN congestion_warned INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE mandis ADD COLUMN state TEXT NOT NULL DEFAULT 'Kerala'",
     ):
         try:
             conn.execute(stmt)

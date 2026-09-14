@@ -74,6 +74,7 @@ def discover(lat: float | None = None, lng: float | None = None,
         rating = mandi_rating(m["id"])
         centres.append({
             "mandi_id": m["id"], "name": m["name"], "district": m["district"],
+            "state": m["state"],
             "lat": m["lat"], "lng": m["lng"],
             "status": status["status"], "status_note": status["note"],
             "distance_km": round(distance_km, 1),

@@ -14,9 +14,25 @@ FIRST_NAMES = ["Rajan", "Meera", "Suresh", "Lakshmi", "Anil", "Devika", "Manoj",
 LAST_NAMES = ["Kumar", "Menon", "Nair", "Pillai", "Reddy", "Shetty", "Varma", "Iyer"]
 
 MANDIS = [
-    {"id": "KL-KOCHI-01", "name": "Kochi Central Procurement Centre", "district": "Ernakulam", "lat": 9.9312, "lng": 76.2673},
-    {"id": "KL-THRIS-02", "name": "Thrissur Mandi", "district": "Thrissur", "lat": 10.5276, "lng": 76.2144},
-    {"id": "KL-PALAK-03", "name": "Palakkad Procurement Centre", "district": "Palakkad", "lat": 10.7867, "lng": 76.6548},
+    # Kerala (the original prototype centres)
+    {"id": "KL-KOCHI-01", "name": "Kochi Central Procurement Centre", "district": "Ernakulam", "state": "Kerala", "lat": 9.9312, "lng": 76.2673},
+    {"id": "KL-THRIS-02", "name": "Thrissur Mandi", "district": "Thrissur", "state": "Kerala", "lat": 10.5276, "lng": 76.2144},
+    {"id": "KL-PALAK-03", "name": "Palakkad Procurement Centre", "district": "Palakkad", "state": "Kerala", "lat": 10.7867, "lng": 76.6548},
+    # Pan-India network (representative centres across major procuring states)
+    {"id": "PB-LUDH-01", "name": "Ludhiana Grain Market", "district": "Ludhiana", "state": "Punjab", "lat": 30.9010, "lng": 75.8573},
+    {"id": "PB-AMRIT-02", "name": "Amritsar Procurement Centre", "district": "Amritsar", "state": "Punjab", "lat": 31.6340, "lng": 74.8723},
+    {"id": "MH-PUNE-01", "name": "Pune APMC Mandi", "district": "Pune", "state": "Maharashtra", "lat": 18.5204, "lng": 73.8567},
+    {"id": "MH-NASH-02", "name": "Nashik Procurement Centre", "district": "Nashik", "state": "Maharashtra", "lat": 19.9975, "lng": 73.7898},
+    {"id": "UP-LUCK-01", "name": "Lucknow Mandi Parishad Centre", "district": "Lucknow", "state": "Uttar Pradesh", "lat": 26.8467, "lng": 80.9462},
+    {"id": "UP-KANP-02", "name": "Kanpur Procurement Centre", "district": "Kanpur Nagar", "state": "Uttar Pradesh", "lat": 26.4499, "lng": 80.3319},
+    {"id": "MP-INDO-01", "name": "Indore Krishi Upaj Mandi", "district": "Indore", "state": "Madhya Pradesh", "lat": 22.7196, "lng": 75.8577},
+    {"id": "MP-BHOP-02", "name": "Bhopal Procurement Centre", "district": "Bhopal", "state": "Madhya Pradesh", "lat": 23.2599, "lng": 77.4126},
+    {"id": "KA-BENG-01", "name": "Bengaluru APMC Yard", "district": "Bengaluru Urban", "state": "Karnataka", "lat": 12.9716, "lng": 77.5946},
+    {"id": "KA-HUBL-02", "name": "Hubballi Mandi", "district": "Dharwad", "state": "Karnataka", "lat": 15.3647, "lng": 75.1240},
+    {"id": "TN-COIM-01", "name": "Coimbatore Uzhavar Sandhai", "district": "Coimbatore", "state": "Tamil Nadu", "lat": 11.0168, "lng": 76.9558},
+    {"id": "TN-MADU-02", "name": "Madurai Procurement Centre", "district": "Madurai", "state": "Tamil Nadu", "lat": 9.9252, "lng": 78.1198},
+    {"id": "WB-KOLK-01", "name": "Kolkata Metropolitan Market", "district": "Kolkata", "state": "West Bengal", "lat": 22.5726, "lng": 88.3639},
+    {"id": "GJ-AHMD-01", "name": "Ahmedabad APMC", "district": "Ahmedabad", "state": "Gujarat", "lat": 23.0225, "lng": 72.5714},
 ]
 
 
@@ -28,9 +44,9 @@ def seed_if_empty():
     # --- Mandis & counters -------------------------------------------------
     for m in MANDIS:
         execute(
-            "INSERT INTO mandis (id, name, district, lat, lng, opens_at, closes_at)"
-            " VALUES (?, ?, ?, ?, ?, '08:00', '17:00')",
-            (m["id"], m["name"], m["district"], m["lat"], m["lng"]),
+            "INSERT INTO mandis (id, name, district, state, lat, lng, opens_at, closes_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, '08:00', '17:00')",
+            (m["id"], m["name"], m["district"], m["state"], m["lat"], m["lng"]),
         )
         for i, ctype in enumerate(["WEIGHING", "WEIGHING", "QUALITY_CHECK"]):
             execute(
@@ -48,6 +64,21 @@ def seed_if_empty():
         "INSERT INTO staff_users (username, password_hash, role, mandi_id, name) VALUES (?, ?, 'ADMIN', NULL, ?)",
         ("admin", hash_password("admin123"), "District Officer"),
     )
+    # One staff login per state so every centre on the national map is operable.
+    for uname, mid, sname in (
+        ("staffpb", "PB-LUDH-01", "Ludhiana Counter Staff"),
+        ("staffmh", "MH-PUNE-01", "Pune Counter Staff"),
+        ("staffup", "UP-LUCK-01", "Lucknow Counter Staff"),
+        ("staffmp", "MP-INDO-01", "Indore Counter Staff"),
+        ("staffka", "KA-BENG-01", "Bengaluru Counter Staff"),
+        ("stafftn", "TN-COIM-01", "Coimbatore Counter Staff"),
+        ("staffwb", "WB-KOLK-01", "Kolkata Counter Staff"),
+        ("staffgj", "GJ-AHMD-01", "Ahmedabad Counter Staff"),
+    ):
+        execute(
+            "INSERT INTO staff_users (username, password_hash, role, mandi_id, name) VALUES (?, ?, 'STAFF', ?, ?)",
+            (uname, hash_password("staff123"), mid, sname),
+        )
 
     # --- 30 days of synthetic history (trains the prediction models) --------
     rng = random.Random(42)

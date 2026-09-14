@@ -338,6 +338,69 @@ def demo_book_ep(body: DemoBookIn):
                        quantity_kg=500, slot_time=slot, lang=body.lang or "ml"))
 
 
+class MissedCallBookIn(BaseModel):
+    """State machine for the guided missed-call booking flow.
+    Call 1 (no choice):  IVR plays the crop menu  -> press 1/2/3.
+    Call 2 (choice=N):   IVR asks the bag count   -> keypad digits.
+    Call 3 (choice, bags): booking created + token spoken + SMS sent."""
+    phone: str
+    choice: int | None = None      # 1=Paddy  2=Wheat  3=Other->Maize
+    bags: int | None = None
+    lang: str = "ml"
+
+
+_CROP_BY_CHOICE = {1: "Paddy", 2: "Wheat", 3: "Maize"}
+
+# Region inference for missed calls (no GPS): the IVR language plus the
+# caller's telecom circle give the home state. Never forced — a Punjabi in
+# Kerala can still pick any centre; this only defaults the recommendation.
+_LANG_STATE = {"pa": "Punjab", "mr": "Maharashtra", "kn": "Karnataka",
+               "bn": "West Bengal", "gu": "Gujarat", "ta": "Tamil Nadu",
+               "ml": "Kerala"}
+
+
+@router.post("/ivr/missed-call-book")
+def ivr_missed_call_book(body: MissedCallBookIn):
+    """Feature-phone booking without any app: farmer gives a missed call,
+    the system calls back and books through a guided menu in the farmer's
+    language. Every step is logged to the audit trail."""
+    lang = body.lang if body.lang in SUPPORTED_LANGS else "ml"
+    log_event(None, f"FARMER:{body.phone}", "MISSED_CALL",
+              {"choice": body.choice, "bags": body.bags, "lang": lang})
+
+    # Step 3: we have everything -> book at the best centre for the crop.
+    if body.choice in _CROP_BY_CHOICE and body.bags:
+        crop = _CROP_BY_CHOICE[body.choice]
+        qty = max(50.0, float(body.bags) * 50.0)
+        from .discovery import discover
+        centres = discover(None, None, crop, qty)
+        open_c = [c for c in centres if c["status"] == "OPEN"] or centres
+        pref = _LANG_STATE.get(lang)
+        state_c = [c for c in open_c if c["state"] == pref] if pref else []
+        pool = state_c or open_c
+        rec = min(pool, key=lambda c: c["queue_length"])
+        if not rec:
+            raise HTTPException(status_code=409, detail="No open centres")
+        slot_time = "12:30" if rec["queue_length"] < 20 else "16:00"
+        r = book(BookIn(mandi_id=rec["mandi_id"], phone=body.phone,
+                       farmer_name=f"Farmer {body.phone[-4:]}", crop=crop,
+                       quantity_kg=qty, slot_time=slot_time, lang=lang))
+        spoken = render(lang, "IVR_BOOKED", {"token": r["token"],
+                                             "name": rec["name"], "time": slot_time})
+        return {"stage": "booked", "ivr_says": spoken, "token": r["token"],
+                "mandi_id": r["mandi_id"], "slot_date": r["slot_date"],
+                "slot_time": slot_time, "crop": crop, "quantity_kg": qty, "lang": lang}
+
+    # Step 2: crop known, bags missing -> ask for the bag count.
+    if body.choice in _CROP_BY_CHOICE:
+        return {"stage": "ask_bags", "lang": lang,
+                "ivr_says": render(lang, "IVR_ASK_QUANTITY", {})}
+
+    # Step 1 (or invalid input): play the crop menu.
+    return {"stage": "menu", "lang": lang,
+            "ivr_says": render(lang, "IVR_MENU_CROPS", {})}
+
+
 @router.post("/ivr/call")
 def ivr_call(body: IvrIn):
     """Simulated IVR: farmer dials in, system speaks the live status."""
@@ -868,7 +931,7 @@ def grievance_triage(body: GrievanceIn):
 
 @router.get("/mandis")
 def mandis():
-    rows = query("SELECT id, name, district, lat, lng, opens_at, closes_at FROM mandis")
+    rows = query("SELECT id, name, district, state, lat, lng, opens_at, closes_at FROM mandis")
     out = []
     for r in rows:
         snap = get_snapshot(r["id"])

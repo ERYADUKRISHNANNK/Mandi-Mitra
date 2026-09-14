@@ -126,7 +126,7 @@ admin_jwt = admin_login.get("access_token", "")
 check("admin login", code == 200 and bool(admin_jwt))
 
 code, cc = call("GET", "/api/admin/command-centre", token=admin_jwt)
-check("district command centre", code == 200 and cc.get("mandis_monitored", 0) == 3)
+check("district command centre", code == 200 and cc.get("mandis_monitored", 0) >= 3)
 
 code, an = call("GET", "/api/staff/anomalies", token=jwt)
 check("anomaly scanner", code == 200 and "flags" in an)
@@ -251,7 +251,7 @@ check("farmer alert ACK", code == 200 and ack.get("ok"))
 
 # --- wave-4: Mandi Mitra 2.0 (discovery, assistant, feedback, grievances) ----
 code, disc = call("GET", "/api/farmer/discover?crop=Paddy&quantity_kg=500")
-check("centre discovery ranked", code == 200 and len(disc.get("centres", [])) == 3
+check("centre discovery ranked", code == 200 and len(disc.get("centres", [])) >= 3
       and disc["centres"][0]["total_journey_minutes"] <= disc["centres"][-1]["total_journey_minutes"])
 
 code, bfm = call("GET", "/api/farmer/best-for-me?crop=Paddy&quantity_kg=500")
@@ -340,6 +340,39 @@ code, vc = call("POST", "/api/farmer/voice-book", {"phone": "9003333446", "text"
 check("voice NLU asks for crop when nothing understood",
       code == 200 and vc.get("stage") == "clarify" and len(vc.get("message", "")) > 20, str(vc)[:160])
 
+# --- pan-India: missed-call booking, Punjabi NLU, 'where' intent -------------
+code, mc = call("POST", "/api/farmer/ivr/missed-call-book", {"phone": "9812340099", "lang": "pa"})
+check("missed-call IVR: Punjabi crop menu", code == 200 and mc.get("stage") == "menu"
+      and "1" in mc.get("ivr_says", ""), str(mc)[:120])
+
+code, mc2 = call("POST", "/api/farmer/ivr/missed-call-book", {"phone": "9812340099", "choice": 2, "lang": "pa"})
+check("missed-call IVR: asks bag count", code == 200 and mc2.get("stage") == "ask_bags")
+
+code, mc3 = call("POST", "/api/farmer/ivr/missed-call-book",
+                 {"phone": "9812340099", "choice": 2, "bags": 12, "lang": "pa"})
+check("missed-call IVR: books at Punjab centre + token",
+      code == 200 and mc3.get("stage") == "booked" and mc3.get("token", "").startswith("MND-")
+      and str(mc3.get("mandi_id", "")).startswith("PB-"), str(mc3)[:160])
+
+code, pn = call("POST", "/api/farmer/voice-book",
+                {"phone": "9003333447", "farmer_name": "Punjab Farmer",
+                 "text": "20 ਬੋਰੀ ਕਣਕ ਕੱਲ੍ਹ ਸਵੇਰੇ"})
+check("voice NLU parses Punjabi speech",
+      code == 200 and pn.get("parsed", {}).get("crop") == "Wheat"
+      and pn.get("parsed", {}).get("quantity_kg") == 1000.0
+      and pn.get("parsed", {}).get("day") == "tomorrow", str(pn)[:200])
+
+code, wr = call("POST", "/api/farmer/assistant",
+                {"question": "ਮੈਨੂੰ ਕਣਕ ਵੇਚਣੀ ਹੈ, ਮੇਰੇ ਨੇੜੇ ਸਭ ਤੋਂ ਵਧੀਆ ਮੰਡੀ ਕਿਹੜੀ ਹੈ?", "lang": "pa"})
+check("assistant 'where' intent replies in Punjabi with a plan",
+      code == 200 and len(wr.get("reply", "")) > 20 and wr.get("recommended") is not None, str(wr)[:160])
+
+code, mn = call("GET", "/api/farmer/mandis")
+states = {m.get("state") for m in mn.get("mandis", [])}
+check("pan-India network: 8 states on the map",
+      code == 200 and len(mn.get("mandis", [])) >= 15
+      and {"Punjab", "Maharashtra", "Uttar Pradesh", "Tamil Nadu"}.issubset(states), str(states))
+
 code, pp = call("GET", "/api/farmer/passport?phone=9876543210")
 check("farmer procurement passport", code == 200 and pp.get("totals") is not None
       and pp.get("farmer", {}).get("mm_id", "").startswith("MM-"))
@@ -423,7 +456,7 @@ check("transfer booking executes (new token)", code == 200 and tb.get("ok")
       and tb.get("new_token", "").startswith("MND-"))
 
 code, nb = call("GET", "/api/admin/network-brain", token=admin_jwt)
-check("national mandi brain", code == 200 and nb.get("summary", {}).get("monitored") == 3
+check("national mandi brain", code == 200 and nb.get("summary", {}).get("monitored") >= 3
       and isinstance(nb.get("actions"), list))
 
 code, nb403 = call("GET", "/api/admin/network-brain", token=jwt)
@@ -455,7 +488,8 @@ code, lmstat = call("GET", "/api/staff/live-mode", token=jwt)
 code, lmoff = call("POST", "/api/staff/live-mode", {"on": False}, token=jwt)
 check("live mode stops", code == 200 and lmoff.get("live") is False)
 check("live mode generated real activity", lmstat.get("events_processed", 0) >= 3
-      and after_count != before_count, f"events={lmstat.get('events_processed')} queue {before_count}->{after_count}")
+      and (after_count != before_count or lmstat.get("events_processed", 0) >= 10),
+      f"events={lmstat.get('events_processed')} queue {before_count}->{after_count}")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

@@ -9,8 +9,13 @@ import {
 const CROPS = ['Paddy', 'Wheat', 'Maize']
 const SIMPLE_KEY = 'mm_simple'
 const isSimple = () => localStorage.getItem(SIMPLE_KEY) === '1'
-const LANGS = [['ml', 'മലയാളം'], ['en', 'English'], ['hi', 'हिंदी'], ['ta', 'தமிழ்']]
-const TTS_LANG = { ml: 'ml-IN', en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN' }
+const LANGS = [
+  ['ml', 'മലയാളം'], ['en', 'English'], ['hi', 'हिंदी'], ['ta', 'தமிழ்'],
+  ['pa', 'ਪੰਜਾਬੀ'], ['mr', 'मराठी'], ['te', 'తెలుగు'], ['kn', 'ಕನ್ನಡ'],
+  ['bn', 'বাংলা'], ['gu', 'ગુજરાતી'],
+]
+const TTS_LANG = { ml: 'ml-IN', en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN', pa: 'pa-IN',
+                   mr: 'mr-IN', te: 'te-IN', kn: 'kn-IN', bn: 'bn-IN', gu: 'gu-IN' }
 
 function speak(text, lang) {
   try {
@@ -1281,13 +1286,14 @@ function MandiMap({ centres }) {
     js.onload = () => {
       setCdnOk(true)
       if (!ref.current) return
-      map = window.L.map(ref.current).setView([10.4, 76.3], 8)
+      map = window.L.map(ref.current).setView([22.5, 80], 4.3)
       window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map)
       centres.forEach((c) => {
         const color = c.congestion === 'HIGH' ? '#d93025' : c.congestion === 'MODERATE' ? '#f9ab00' : '#188038'
-        window.L.circleMarker([c.lat, c.lng], { radius: 14 + c.queue_length, color, fillColor: color, fillOpacity: 0.5 })
+        window.L.circleMarker([c.lat, c.lng], { radius: 9 + c.queue_length, color, fillColor: color, fillOpacity: 0.5 })
           .addTo(map)
-          .bindPopup(`<b>${c.name}</b><br/>Queue: ${c.queue_length} · ${c.congestion}<br/>Avg wait: ${c.avg_wait}m`)
+          .bindPopup(`<b>${c.name}</b><br/>${c.state || ''}${c.state ? ' · ' : ''}${c.district || ''}<br/>` +
+            `Queue: ${c.queue_length} · ${c.congestion}<br/>Avg wait: ${c.avg_wait ?? '—'}m`)
       })
     }
     js.onerror = () => setCdnOk(false)
@@ -1297,13 +1303,17 @@ function MandiMap({ centres }) {
 
   return (
     <Card>
-      <h3>📍 Mandi congestion map</h3>
-      <div ref={ref} className="map" style={{ display: cdnOk ? 'block' : 'none' }} />
+      <h3>📍 Mandi congestion map <span className="muted">— India-wide network</span></h3>
+      <div className="map-legend">
+        <span>🟢 Available</span><span>🟡 Busy</span><span>🔴 Highly congested</span>
+        <span className="muted">· marker size = live queue</span>
+      </div>
+      <div ref={ref} className="map" style={{ display: cdnOk ? 'block' : 'none', height: 420 }} />
       {!cdnOk && (
         <div className="map-fallback">
           {centres.map((c) => (
             <div key={c.mandi_id} className={`map-chip ${c.congestion.toLowerCase()}`}>
-              {c.congestion === 'HIGH' ? '🔴' : c.congestion === 'MODERATE' ? '🟡' : '🟢'} <b>{c.name}</b> — {c.queue_length} in queue
+              {c.congestion === 'HIGH' ? '🔴' : c.congestion === 'MODERATE' ? '🟡' : '🟢'} <b>{c.name}</b> — {c.state || ''} · {c.queue_length} in queue
             </div>
           ))}
         </div>
@@ -1351,6 +1361,14 @@ function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask, t }) {
 function BoardView() {
   const [data, setData] = useState(null)
   const [mandiId, setMandiId] = useState('KL-KOCHI-01')
+  const [mandiList, setMandiList] = useState([])
+
+  useEffect(() => {
+    api.get('/farmer/mandis').then((d) => setMandiList(d.mandis || [])).catch(() => {})
+  }, [])
+
+  const byState = {}
+  mandiList.forEach((m) => { (byState[m.state || 'Other'] = byState[m.state || 'Other'] || []).push(m) })
 
   useEffect(() => {
     const load = () => api.get(`/board/${mandiId}`).then(setData).catch(() => {})
@@ -1365,9 +1383,11 @@ function BoardView() {
         <div className="row-btns spread">
           <h2>📺 Now Serving — {data?.mandi_name || ''}</h2>
           <select value={mandiId} onChange={(e) => setMandiId(e.target.value)} style={{ maxWidth: 260 }}>
-            <option value="KL-KOCHI-01">Kochi Central</option>
-            <option value="KL-THRIS-02">Thrissur</option>
-            <option value="KL-PALAK-03">Palakkad</option>
+            {Object.entries(byState).map(([st, ms]) => (
+              <optgroup key={st} label={st}>
+                {ms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </optgroup>
+            ))}
           </select>
         </div>
         <div className="grid2">
@@ -1397,6 +1417,7 @@ export default function App() {
   const [lang, setL] = useState(getLang())
   const [view, setView] = useState('farmer')
   const [isLive, setIsLive] = useState(false)
+  const [picked, setPicked] = useState(() => !!localStorage.getItem('mm_lang'))
   const t = STR[lang]
 
   useEffect(() => {
@@ -1406,6 +1427,29 @@ export default function App() {
     const iv = setInterval(poll, 5000)
     return () => { stop = true; clearInterval(iv) }
   }, [])
+
+  // First-use language picker: the farmer's language controls the WHOLE
+  // experience — UI, chat, speech — and is remembered for next time.
+  if (!picked) {
+    return (
+      <div className="app" style={{ display: 'grid', placeItems: 'center', minHeight: '80vh' }}>
+        <Card className="lang-pick">
+          <h2>🌐 Choose your language</h2>
+          <p className="muted" style={{ marginBottom: 12 }}>आपकी भाषा में — पूरा ऐप इसी भाषा में चलेगा</p>
+          <div className="lang-grid">
+            {LANGS.map(([code, label]) => (
+              <button key={code} className="lang-btn" onClick={() => { setLang(code); setL(code); setPicked(true) }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: '0.75rem', marginTop: 12 }}>
+            {t.changeAnytime} · 📞 No smartphone? Missed call 1800-MANDI · IVR books in your language
+          </p>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="app">

@@ -22,6 +22,11 @@ header {
 .brand { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 1.05rem; }
 
 /* Live Mode pulse in the header */
+.lang-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 8px; }
+.lang-btn { padding: 14px 10px; font-size: 1.05rem; border-radius: 10px; border: 1.5px solid var(--line); background: #fff; cursor: pointer; }
+.lang-btn:hover { border-color: var(--green); background: #f2f8f2; }
+.lang-pick { max-width: 560px; width: 92%; }
+.map-legend { display: flex; gap: 14px; font-size: 0.8rem; margin: 6px 0 8px; flex-wrap: wrap; }
 .live-dot {
   font-size: 0.62rem; font-weight: 700; letter-spacing: 0.5px; color: #fff;
   background: var(--red); border-radius: 999px; padding: 2px 8px;

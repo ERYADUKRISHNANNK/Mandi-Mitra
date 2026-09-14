@@ -20,13 +20,23 @@ from .db import query, query_one
 # --------------------------------------------------------------------------
 
 def detect_lang(text: str) -> str | None:
-    """Script-based language guess: Malayalam, Hindi (Devanagari), Tamil."""
+    """Script-based language guess across the supported Indic scripts."""
     if re.search(r"[\u0d00-\u0d7f]", text):
         return "ml"
-    if re.search(r"[\u0900-\u097f]", text):
-        return "hi"
+    if re.search(r"[\u0a00-\u0a7f]", text):
+        return "pa"
     if re.search(r"[\u0b80-\u0bff]", text):
         return "ta"
+    if re.search(r"[\u0c00-\u0c7f]", text):
+        return "te"
+    if re.search(r"[\u0c80-\u0cff]", text):
+        return "kn"
+    if re.search(r"[\u0980-\u09ff]", text):
+        return "bn"
+    if re.search(r"[\u0a80-\u0aff]", text):
+        return "gu"
+    if re.search(r"[\u0900-\u097f]", text):
+        return "hi"   # Devanagari also covers Marathi
     return None
 
 
@@ -66,6 +76,18 @@ R = {
         "ml": "പേയ്മെന്റ് പരിശോധിക്കാൻ ടോക്കൺ അല്ലെങ്കിൽ രജിസ്റ്റർ ചെയ്ത ഫോൺ വേണം.",
         "hi": "भुगतान जानने के लिए टोकन या रजिस्टर्ड फोन चाहिए।",
         "ta": "பணம் அறிய டோக்கன் அல்லது பதிவு செய்த ஃபோன் தேவை.",
+    },
+    "where": {
+        "en": "Go to {name} ({dist} km). Current waiting about {wait} min. Please come between {slot}.",
+        "ml": "{name}-യിലേക്ക് പോകൂ ({dist} കി.മീ). ഇപ്പോൾ ഏകദേശം {wait} മിനിറ്റ് കാത്തിരുപ്പ്. {slot} ഇടയ്ക്ക് എത്തുക.",
+        "hi": "{name} जाएँ ({dist} किमी)। अभी लगभग {wait} मिनट प्रतीक्षा। {slot} के बीच आएँ।",
+        "ta": "{name} செல்லுங்கள் ({dist} கி.மீ). தற்போது சுமார் {wait} நிமிட காத்திருப்பு. {slot} இடையே வாருங்கள்.",
+        "pa": "{name} ਜਾਓ ({dist} ਕਿ.ਮੀ)। ਹੁਣੇ ਤਕਰੀਬਨ {wait} ਮਿੰਟ ਉਡੀਕ। {slot} ਵਿਚਕਾਰ ਆਓ।",
+        "mr": "{name} येथे जा ({dist} किमी). सध्या जवळपास {wait} मिनिटे प्रतीक्षा. {slot} या वेळेत या.",
+        "te": "{name} కి వెళ్ళండి ({dist} కి.మీ). ప్రస్తుతం సుమారు {wait} నిమిషాల వేచి ఉండడం. {slot} మధ్య రండి.",
+        "kn": "{name} ಗೆ ಹೋಗಿ ({dist} ಕಿ.ಮೀ). ಈಗ ಸುಮಾರು {wait} ನಿಮಿಷ ಕಾಯುವಿಕೆ. {slot} ನಡುವೆ ಬನ್ನಿ.",
+        "bn": "{name} যান ({dist} কিমি)। এখন প্রায় {wait} মিনিট অপেক্ষা। {slot} এর মধ্যে আসুন।",
+        "gu": "{name} જાઓ ({dist} કિમી). હાલમાં આશરે {wait} મિનિટ રાહ જોવી. {slot} વચ્ચે આવો.",
     },
     "nearby": {
         "en": "Centres ranked by total journey time: {names}.",
@@ -251,7 +273,11 @@ INTENTS = [
     ("documents", [r"document", r"paper", r"carry", r"proof",
                    r"രേഖ", r"ദസ്ത", r"कागज़", r"दस्तावेज़", r"ஆவண"]),
     ("nearby", [r"nearby", r"nearest", r"which mandi", r"other cent", r"less crowd",
-                r"അടുത്ത", r"ഏത് കേന്ദ്ര", r"नज़दीक", r"அருகில", r"எந்த மையம்"]),
+                r"where.*sell", r"where.*take", r"where.*go", r"best mandi",
+                r"അടുത്ത", r"ഏത് കേന്ദ്ര", r"എവിടെ.*കൊണ്ടുപോകം", r"എവിടെ.*വിൽക്കം",
+                r"എവിടെ.*സ്ലോട്ട്", r"വേഗം", r"नज़दीक", r"कहाँ", r"कहां",
+                r"அருகில", r"எந்த மையம்", r"எங்கு", r"ਕਿਹੜੀ", r"ਨੇੜੇ",
+                r"कुठे", r"ఎక్కడ", r"ಎಲ್ಲಿ", r"কোথায়", r"ક્યાં"]),
     ("procedure", [r"process", r"how.*procure", r"steps", r"quality check", r"weighing",
                    r"ഗുണനിലവാര", r"തൂക്ക", r"गुणवत्ता", r"तौल", r"தரம்", r"தராசு"]),
     ("grievance", [r"complaint", r"grievance", r"issue.*report", r"problem",
@@ -301,8 +327,25 @@ def assistant_reply(question: str, user: dict) -> dict:
     if intent == "nearby":
         r = use("find_nearby_centres", {"lat": user.get("lat"), "lng": user.get("lng"),
                                         "crop": user.get("crop")})
+        centres = r["centres"]
+        open_c = [c for c in centres if c["status"] == "OPEN"] or centres
+        best = open_c[0] if open_c else None
+        # 'Where should I take it?' -> one decisive plan, not a list
+        is_where = any(w in q for w in ("where", "എവിടെ", "കൊണ്ടുപോകം", "വിൽക്കം",
+                                        "कहाँ", "कहां", "எங்கு", "ਕਿਹੜੀ", "ਨੇੜੇ",
+                                        "ਵੇਚਣੀ", "कुठे", "ఎక్కడ", "ಎಲ್ಲಿ",
+                                        "কোথায়", "ક્યાં")) or any(re.search(p, q) for p in
+                                        (r"where.*sell", r"where.*take", r"best mandi"))
+        if is_where and best:
+            arr_start = "14:30"
+            arr_end = "15:30"
+            return {"reply": _r("where", lang, name=best["name"], dist=best["distance_km"],
+                               wait=int(best["total_journey_minutes"]),
+                               slot=f"{arr_start}\u2013{arr_end}"),
+                    "recommended": {**best, "arrival_window": [arr_start, arr_end]},
+                    "tool_calls": tool_calls}
         names = ", ".join(f"{c['name']} ({c['queue_length']}, ~{c['total_journey_minutes']}m)"
-                          for c in r["centres"][:3])
+                          for c in centres[:3])
         return {"reply": _r("nearby", lang, names=names),
                 "tool_calls": tool_calls}
 

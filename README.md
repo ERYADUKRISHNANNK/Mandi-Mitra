@@ -5,7 +5,9 @@
 > **Farmers don't need to understand the technology. Mandi Mitra understands the farmer.**
 > The farmer speaks naturally in their own language; the AI copilot decides the best centre, the best time, and when to leave home — all the intelligence lives underneath, none of the jargon reaches the farmer.
 
-A working full-stack prototype for Smart India Hackathon (SIH26032), evolved from a queue-visibility system into a **national intelligent procurement platform**: farmers discover and compare nearby centres, get AI "Best Mandi For Me" recommendations, book through five access modes, receive predictive turn/departure alerts, and track procurement + payment end-to-end — while staff, district and national administrators get role-scoped operational intelligence. Offline-first, multilingual (en/ml/hi/ta), and grounded by a RAG knowledge layer with MCP-style controlled tools.
+A working full-stack prototype for Smart India Hackathon (SIH26032), evolved from a queue-visibility system into a **national intelligent procurement platform**: farmers discover and compare nearby centres, get AI "Best Mandi For Me" recommendations, book through five access modes, receive predictive turn/departure alerts, and track procurement + payment end-to-end — while staff, district and national administrators get role-scoped operational intelligence.
+
+🇮🇳 **One Mandi Mitra. Every Mandi. Every Language. Every Farmer.** — the prototype seeds **17 centres across 8 states** (Kerala, Punjab, Maharashtra, Uttar Pradesh, Madhya Pradesh, Karnataka, Tamil Nadu, West Bengal, Gujarat) on one India-wide congestion map. **10 fully-supported languages** (en/ml/hi/ta + pa/mr/te/kn/bn/gu): a first-use language picker sets UI, chat and voice at once; the voice NLU parses spoken crop/quantity/day/time in every language; the assistant auto-detects the script and answers in kind; and feature-phone farmers book through a **guided missed-call IVR** (Press 1 Paddy · 2 Wheat · 3 Other → bag count → token + SMS) with region-aware centre selection. Offline-first, and grounded by a RAG knowledge layer with MCP-style controlled tools.
 
 ---
 
@@ -13,7 +15,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 
 | Module | Status | Highlights |
 |---|---|---|
-| Multi-channel booking | ✅ working | PWA · simulated SMS (`BOOK MANDI CROP QTY`) · missed-call IVR callback · 4 languages |
+| Multi-channel booking | ✅ working | PWA · simulated SMS (`BOOK MANDI CROP QTY`) · missed-call IVR callback · **10 languages** |
 | AI smart slots | ✅ working | Recommended slot + expected wait + confidence % |
 | Dynamic queue engine | ✅ working | Live positions recalculated on every event; serving/waiting/upcoming groups |
 | Wait-time prediction | ✅ working | Ridge regression on 30-day synthetic history, analytic fallback, confidence score |
@@ -41,7 +43,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | Governance CSV report | ✅ working | One-click daily per-farmer report incl. minutes-in-mandi |
 | **Congestion scenario injector** | ✅ working | One click fills the mandi with realistic load — SLA breaches, stuck stages, delayed payments, velocity anomalies all light up live |
 | **Voice output (TTS)** | ✅ working | Farmer token screen speaks status aloud via Web Speech; IVR call simulation plays real audio in the room |
-| **Live SMS/IVR channel feed** | ✅ working | Staff see every message the system sends, in all 4 languages, in real time |
+| **Live SMS/IVR channel feed** | ✅ working | Staff see every message the system sends, in all 10 languages, in real time |
 | **ML explainability** | ✅ working | `/api/staff/ml/info` exposes algorithm, features, R², sample count and the fallback story — no black-box claims |
 | **CSC agent booking** | ✅ working | VLE agent books on behalf of farmers with no phone at all — the government adoption path |
 | Impact metrics | ✅ working | Farmer-hours saved today, avg time-at-centre vs 4h baseline, on the admin dashboard |
@@ -51,7 +53,7 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | **Rate transparency** | ✅ working | ₹/quintal + estimated value — always with source + updated timestamp (no fake-official numbers) |
 | **Structured feedback + experience score** | ✅ working | 6-dimension ratings feed the mandi's public experience score |
 | **Grievance lifecycle** | ✅ working | MM-GRV tracking IDs, 5-stage timeline, admin resolution |
-| **RAG assistant (grounded)** | ✅ working | Official-doc answers WITH source + date; refuses to invent; 4 languages; voice output |
+| **RAG assistant (grounded)** | ✅ working | Official-doc answers WITH source + date; refuses to invent; 10 languages; voice output |
 | **MCP-style tool layer** | ✅ working | Assistant reaches data only through role-authorized tools (LLM → tool → authz → data) |
 | **"Why?" explainable engine** | ✅ working | Real drivers behind your wait: offline counters, arrival spikes, stuck stages |
 | **Mandi performance score** | ✅ working | Composite score + top-bottleneck recommendation for administrators |
@@ -68,10 +70,10 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | **Mandi Trust Score** | ✅ working | Transparent weighted composite (queue efficiency, payment reliability, information accuracy, grievance resolution, farmer rating) |
 | **Farmer procurement passport** | ✅ working | Per-farmer history: visits, completions, earnings, avg time — per crop, private to the farmer |
 | **Explain My Payment** | ✅ working | 5-step checklist from real records (approval → bank confirmation) — never invented, flags delay review |
-| **Voice-to-action booking** | ✅ working | Real microphone input: farmer *speaks* — "I have 20 bags of paddy today 3 pm" / "ഇന്ന് 3 മണിക്ക് 20 സഞ്ചി നെല്ല്" / "आज शाम 4 बजे 10 बोरी धान" / "நாளை காலை 10 மணி 20 பை நெல்" — the NLU parses crop, quantity (kg **or bags**), day and time in all 4 languages, replies in the farmer's language, and **explicit confirmation is required** before anything is booked. Evening roll-over: a spoken time that already passed books tomorrow automatically |
+| **Voice-to-action booking** | ✅ working | Real microphone input: farmer *speaks* — "I have 20 bags of paddy today 3 pm" / "ഇന്ന് 3 മണിക്ക് 20 സഞ്ചി നെല്ല്" / "आज शाम 4 बजे 10 बोरी धान" / "நாளை காலை 10 மணி 20 பை நெல்" — the NLU parses crop, quantity (kg **or bags**), day and time in all 10 languages, replies in the farmer's language, and **explicit confirmation is required** before anything is booked. Evening roll-over: a spoken time that already passed books tomorrow automatically |
 | **AI grievance triage** | ✅ working | Classifies category + priority from text (HIGH routes to district officer) and files an MM-GRV case |
 | **Emergency Procurement Mode** | ✅ working | One click freezes bookings, marks the centre CLOSED, notifies affected farmers, points to alternatives |
-| **🧠 AI Procurement Copilot** | ✅ working | Farmer speaks naturally ("ഇന്ന് 10 സഞ്ചി നെല്ല് 3 മണിക്ക്") → ONE plan: best centre, leave-at time, expected wait, est. value, documents to carry, savings vs the worst option. Multilingual parser (en/ml/hi/ta), bags→kg, mic input |
+| **🧠 AI Procurement Copilot** | ✅ working | Farmer speaks naturally ("ഇന്ന് 10 സഞ്ചി നെല്ല് 3 മണിക്ക്") → ONE plan: best centre, leave-at time, expected wait, est. value, documents to carry, savings vs the worst option. Multilingual parser (10 languages), bags→kg, mic input |
 | **🌐 Fully localized chat & voice** | ✅ working | Switching the language selector switches EVERYTHING: UI, chat greeting, quick prompts, placeholders, Simple-Mode spoken status (TTS) and every assistant reply. The assistant detects Malayalam/Hindi/Tamil script automatically (no lang needed for IVR/SMS) and answers with live tool data in the farmer's language |
 | **"Don't come yet" departure advisor** | ✅ working | Live-recomputed advice: wait / get-ready / leave-now with the exact start time — attacks blind waiting directly |
 | **Intelligent rebooking (transfer)** | ✅ working | When load shifts, the system offers a better centre with quantified savings; farmer confirms; transfer re-slots with priority |
@@ -108,7 +110,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **98 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking, the national brain, the prevention sweep, counter-slowdown detection and the no-show → requeue cycle.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **104 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing, missed-call guided booking (Punjabi menu→bags→token), pan-India 8-state network, Punjabi voice NLU, assistant 'where' intent, departure advisor, transfer offer/booking, the national brain, the prevention sweep, counter-slowdown detection and the no-show → requeue cycle.
 
 ## 🎬 5-minute demo script
 
