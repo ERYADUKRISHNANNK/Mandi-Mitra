@@ -230,5 +230,6 @@ def impact_metrics():
 @app.get("/api/health")
 def health():
     chain = receipts.verify_chain()
+    from . import live
     return {"status": "ok", "service": "mandi-mitra", "receipt_chain_verified": chain["verified"],
-            "time": now_iso()}
+            "live_mode": live.status()["live"], "time": now_iso()}

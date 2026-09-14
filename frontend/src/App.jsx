@@ -21,6 +21,45 @@ function speak(text, lang) {
   } catch { /* TTS unsupported */ }
 }
 
+// Real microphone input (Web Speech API). Falls back to typed text when the
+// browser blocks or lacks SpeechRecognition — voice input never dead-ends.
+function useMic(lang) {
+  const [listening, setListening] = useState(false)
+  const [unavail, setUnavail] = useState(false)
+  const [err, setErr] = useState('')
+  const recRef = useRef(null)
+
+  const listen = (onText) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { setUnavail(true); return false }
+    try {
+      const rec = new SR()
+      recRef.current = rec
+      rec.lang = TTS_LANG[lang] || 'ml-IN'
+      rec.interimResults = false
+      rec.maxAlternatives = 1
+      rec.onstart = () => { setListening(true); setErr('') }
+      rec.onresult = (e) => {
+        const said = e.results[0][0].transcript
+        setListening(false)
+        if (said && onText) onText(said)
+      }
+      rec.onerror = (e) => {
+        setListening(false)
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed')
+          setErr('Mic permission denied — please type instead')
+        else if (e.error === 'no-speech') setErr('No speech heard — try again')
+        else setErr('Mic error — please type instead')
+      }
+      rec.onend = () => setListening(false)
+      rec.start()
+      return true
+    } catch { setUnavail(true); return false }
+  }
+  const stop = () => { try { recRef.current?.stop() } catch { /* */ } setListening(false) }
+  return { listening, unavail, err, listen, stop, setErr }
+}
+
 function Card({ children, className = '' }) {
   return <div className={`card ${className}`}>{children}</div>
 }
@@ -57,6 +96,7 @@ function FarmerView({ lang }) {
   const [explain, setExplain] = useState(null)
   const [voiceText, setVoiceText] = useState('')
   const [voiceProposal, setVoiceProposal] = useState(null)
+  const [vbErr, setVbErr] = useState('')
   const [copilotText, setCopilotText] = useState('')
   const [copilotPlan, setCopilotPlan] = useState(null)
   const [dep, setDep] = useState(null)
@@ -111,18 +151,10 @@ function FarmerView({ lang }) {
     } catch { /* keep silent */ }
   }
 
+  const mic = useMic(lang)
   const micListen = () => {
-    try {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-      const rec = new SR()
-      rec.lang = TTS_LANG[lang] || 'ml-IN'
-      rec.onresult = (e) => {
-        const said = e.results[0][0].transcript
-        setCopilotText(said)
-        askCopilot(said)
-      }
-      rec.start()
-    } catch { /* unsupported browser */ }
+    if (mic.listening) { mic.stop(); return }
+    mic.listen((said) => { setCopilotText(said); askCopilot(said) })
   }
 
   const bookPlan = async () => {
@@ -184,12 +216,14 @@ function FarmerView({ lang }) {
   }
 
 
-  const voiceBook = async (confirm = false) => {
+  const voiceBook = async (text, confirm = false, parsedPrior = null) => {
     try {
+      setVbErr('')
       const r = await api.post('/farmer/voice-book', {
-        phone: phone || '9000000000', farmer_name: name || 'Farmer', crop,
-        quantity_kg: Number(qty) || 500,
-        when: /tomorrow/i.test(voiceText) ? 'tomorrow' : 'nearest',
+        phone: phone || '9000000000', farmer_name: name || 'Farmer',
+        text: text ?? voiceText, lang,
+        crop: parsedPrior?.crop, quantity_kg: parsedPrior?.quantity_kg,
+        when: parsedPrior?.day,
         confirm,
       })
       setVoiceProposal(r)
@@ -200,7 +234,12 @@ function FarmerView({ lang }) {
         setVoiceProposal(null); setVoiceText('')
         await loadStatus({ token: r.token, phone: r.phone })
       }
-    } catch (e) { setError(e.message) }
+    } catch (e) { setVbErr(e.message) }
+  }
+  const vbMic = useMic(lang)
+  const vbListen = () => {
+    if (vbMic.listening) { vbMic.stop(); return }
+    vbMic.listen((said) => { setVoiceText(said); voiceBook(said, false) })
   }
 
   const selfCheckIn = async () => {
@@ -416,9 +455,14 @@ function FarmerView({ lang }) {
                  placeholder={t.copilotPh} />
           <div className="row-btns">
             <button className="primary" style={{ marginTop: 0 }} onClick={() => askCopilot(copilotText)}>{t.getPlan}</button>
-            <button className="ghost" onClick={micListen} title="Speak in your language">🎙</button>
+            <button className={`ghost ${mic.listening ? 'mic-on' : ''}`} onClick={micListen}
+                    title={mic.listening ? 'Listening… tap to stop' : 'Speak in your language'}>
+              {mic.listening ? '🔴 Listening…' : '🎙'}
+            </button>
           </div>
         </div>
+        {mic.unavail && <p className="muted" style={{ fontSize: '0.75rem' }}>🎙 Voice input isn't available in this browser — type your request instead, everything else works the same.</p>}
+        {!mic.unavail && mic.err && <p className="error" style={{ fontSize: '0.75rem' }}>{mic.err}</p>}
         {copilotPlan && (
           <div className="advice">
             <p className="advice-line"><b>🤖 {copilotPlan.reply}</b></p>
@@ -529,19 +573,41 @@ function FarmerView({ lang }) {
       )}
 
       <Card>
-        <h3>🎙 Voice-to-action booking <span className="muted">(confirms before anything is booked)</span></h3>
+        <h3>🎙 {t.voiceTitle} <span className="muted">({t.voiceConfirmNote})</span></h3>
         <div className="grid2">
           <input value={voiceText} onChange={(e) => setVoiceText(e.target.value)}
-                 placeholder='"Book tomorrow morning at the nearest mandi"' />
-          <button className="primary" style={{ marginTop: 0 }} onClick={() => voiceBook(false)}>🎙 Simulate voice request</button>
+                 placeholder={t.voicePh} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className={`primary ${vbMic.listening ? 'mic-on' : ''}`} style={{ marginTop: 0, flex: 1 }}
+                    onClick={vbListen}
+                    title={vbMic.listening ? 'Listening… tap to stop' : 'Tap, speak in your language, tap again'}>
+              {vbMic.listening ? '🔴 Listening…' : '🎙 Speak now'}
+            </button>
+            <button className="ghost" style={{ marginTop: 0 }}
+                    onClick={() => voiceBook(voiceText, false)}>{t.voiceCheck}</button>
+            <button className="ghost" style={{ marginTop: 0 }}
+                    onClick={() => voiceBook(voiceText, true)} disabled={!voiceProposal?.needs_confirmation}>
+              ✅ {t.voiceYes}
+            </button>
+          </div>
         </div>
+        {vbMic.unavail && <p className="muted" style={{ fontSize: '0.75rem' }}>🎙 {t.voiceUnavail}</p>}
+        {!vbMic.unavail && vbMic.err && <p className="error" style={{ fontSize: '0.75rem' }}>{vbMic.err}</p>}
+        {vbErr && <p className="error" style={{ fontSize: '0.8rem' }}>{vbErr}</p>}
         {voiceProposal && (
           <div className="advice">
             <p className="advice-line">🤖 {voiceProposal.message}</p>
-            {voiceProposal.needs_confirmation && (
-              <button className="primary" onClick={() => voiceBook(true)}>✅ Yes — confirm my booking</button>
+            {voiceProposal.parsed && (
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '4px 0' }}>
+                {t.voiceHeard}: “{voiceProposal.heard}” → {voiceProposal.parsed.crop}, {voiceProposal.parsed.quantity_kg} kg
+                {voiceProposal.parsed.quantity_source ? ` (${voiceProposal.parsed.quantity_source})` : ''},
+                {' '}{voiceProposal.parsed.day}{voiceProposal.parsed.time ? ` ${voiceProposal.parsed.time}` : ''}
+              </p>
             )}
-            {voiceProposal.token && <p className="ok-text">Booked! Token {voiceProposal.token}</p>}
+            {voiceProposal.needs_confirmation && (
+              <button className="primary" onClick={() => voiceBook(voiceText, true)}>✅ {t.voiceYes}</button>
+            )}
+            {voiceProposal.token && <p className="ok-text">{t.booked} {voiceProposal.token}</p>}
           </div>
         )}
       </Card>
@@ -640,6 +706,7 @@ function StaffView({ lang, onLogout }) {
   const [jwt, setJwt] = useState(sessionStorage.getItem('mm_jwt') || '')
   const [u, setU] = useState(sessionStorage.getItem('mm_user') || 'staff1')
   const [p, setP] = useState('')
+  const [liveOn, setLiveOn] = useState(false)
   const [dash, setDash] = useState(null)
   const [queue, setQueue] = useState(null)
   const [bott, setBott] = useState(null)
@@ -729,6 +796,13 @@ function StaffView({ lang, onLogout }) {
       <div className="row-btns spread">
         <h2>🖥 {t.dashboard} — {dash?.mandi_id}</h2>
         <div>
+          <button className={`ghost ${liveOn ? 'live-on' : ''}`}
+                  onClick={async () => {
+                    try {
+                      const r = await api.post('/staff/live-mode', { on: !liveOn, tick_seconds: 3 }, jwt)
+                      setLiveOn(r.live); await load()
+                    } catch (e) { setErr(e.message) }
+                  }}>{liveOn ? '⏸ Live Mode ON' : '▶ Live Mode'}</button>
           <button className="ghost" onClick={() => act('/staff/autopilot', { steps: 4 })}>▶ {t.autopilot}</button>
           <button className="ghost" onClick={() => act('/staff/ivr-broadcast', { lang })}>📣 IVR broadcast</button>
           <button className="ghost" onClick={() => window.open('/api/staff/report/daily.csv', '_blank')}
@@ -1239,6 +1313,11 @@ function MandiMap({ centres }) {
 }
 
 function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask, t }) {
+  const mic = useMic(getLang())
+  const micAsk = () => {
+    if (mic.listening) { mic.stop(); return }
+    mic.listen((said) => { setChatQ(said); ask(said) })
+  }
   if (!open) return null
   return (
     <div className="chat-panel">
@@ -1259,8 +1338,10 @@ function AssistantChat({ open, setOpen, chat, chatQ, setChatQ, ask, t }) {
       <div className="chat-input">
         <input value={chatQ} onChange={(e) => setChatQ(e.target.value)}
                onKeyDown={(e) => e.key === 'Enter' && ask(chatQ)} placeholder={t.chatPh} />
+        <button className={`mini ${mic.listening ? 'mic-on' : ''}`} onClick={micAsk}>{mic.listening ? '🔴…' : '🎙'}</button>
         <button className="mini" onClick={() => ask(chatQ)}>{t.chatSend}</button>
       </div>
+      {(mic.unavail || mic.err) && <p className="muted" style={{ fontSize: '0.7rem', margin: '2px 8px' }}>{mic.unavail ? '🎙 not available here — type instead' : mic.err}</p>}
     </div>
   )
 }
@@ -1315,13 +1396,23 @@ function BoardView() {
 export default function App() {
   const [lang, setL] = useState(getLang())
   const [view, setView] = useState('farmer')
+  const [isLive, setIsLive] = useState(false)
   const t = STR[lang]
+
+  useEffect(() => {
+    let stop = false
+    const poll = () => api.get('/health').then((h) => { if (!stop) setIsLive(!!h.live_mode) }).catch(() => {})
+    poll()
+    const iv = setInterval(poll, 5000)
+    return () => { stop = true; clearInterval(iv) }
+  }, [])
 
   return (
     <div className="app">
       <header>
         <div className="brand" onClick={() => setView('farmer')}>
           🌾 <b>{t.appName}</b> <span className="tagline">{t.tagline}</span>
+          {isLive && <span className="live-dot" title="Live Mode: arrivals, counters and payments update every few seconds">● LIVE</span>}
         </div>
         <nav>
           {['farmer', 'staff', 'admin', 'board'].map((v) => (

@@ -46,6 +46,14 @@ def recommend_slots(mandi_id: str, slot_date: str | None = None, quantity_kg: fl
     slot_date = slot_date or datetime.now().strftime("%Y-%m-%d")
     now = datetime.now()
     is_today = slot_date == now.strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    # Evening fallback: when every today-slot has passed (or the date is in the
+    # past), recommend tomorrow's slots so farmers always get a usable answer.
+    if slot_date < now.strftime("%Y-%m-%d"):
+        slot_date = tomorrow
+        is_today = False
+    if is_today and now.hour >= CANDIDATE_END:
+        slot_date, is_today = tomorrow, False
 
     counters = query_one(
         "SELECT COUNT(*) AS n FROM counters WHERE mandi_id = ? AND is_active = 1", (mandi_id,)

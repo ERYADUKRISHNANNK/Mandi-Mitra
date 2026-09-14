@@ -644,6 +644,16 @@ class DisputeResolveIn(BaseModel):
     resolution: str
 
 
+class WalkInIn(BaseModel):
+    farmer_name: str
+    phone: str
+    crop: str = "Paddy"
+    quantity_kg: float = 500
+    lang: str = "ml"
+    priority_flag: str | None = None
+    mandi_id: str | None = None  # admin may register walk-ins at any centre
+
+
 @router.post("/walkin")
 def walkin(body: WalkInIn, user: dict = Depends(staff_auth)):
     """Kiosk/counter walk-in: issue a token to a farmer with no booking.
@@ -651,6 +661,8 @@ def walkin(body: WalkInIn, user: dict = Depends(staff_auth)):
     from .audit import log_event
     from .notify import send_sms
     mandi_id = body.mandi_id or _require_mandi(user)
+    if body.mandi_id and user.get("role") != "ADMIN":
+        raise HTTPException(status_code=403, detail="Staff may only register walk-ins at their own centre")
     date = today_str()
     from .routes_farmer import next_token
     token = next_token(mandi_id)
@@ -1079,6 +1091,34 @@ def emergency_mode(body: EmergencyIn, user: dict = Depends(staff_auth)):
             "farmers_notified": notified,
             "alternatives": body.alternatives or [],
             "note": "Affected farmers directed to alternative centres per procurement rules"}
+
+
+# ------------------------------ live mode --------------------------------- #
+
+class LiveModeIn(BaseModel):
+    on: bool
+    tick_seconds: float = 4.0
+
+
+@router.post("/live-mode")
+def live_mode(body: LiveModeIn, user: dict = Depends(staff_auth)):
+    """Toggle the background live-simulation heartbeat: arrivals, counter
+    stages, payments and occasional no-shows are driven through the real
+    audited staff actions and pushed to every client over WebSocket."""
+    from . import live
+    if body.on:
+        live.start(body.tick_seconds)
+        log_event(None, f"STAFF:{user['username']}", "LIVE_MODE_ON", {"tick_seconds": body.tick_seconds})
+    else:
+        live.stop()
+        log_event(None, f"STAFF:{user['username']}", "LIVE_MODE_OFF", {})
+    return {"ok": True, **live.status()}
+
+
+@router.get("/live-mode")
+def live_mode_status(user: dict = Depends(staff_auth)):
+    from . import live
+    return live.status()
 
 
 # --------------------------- demo autopilot ------------------------------- #

@@ -5,6 +5,7 @@ Run with the API up:  backend/.venv/Scripts/python backend/scripts/smoke_test.py
 
 import json
 import sys
+import time
 import urllib.request
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
@@ -318,6 +319,27 @@ code, vb2 = call("POST", "/api/farmer/voice-book",
                   "quantity_kg": 400, "when": "nearest", "confirm": True})
 check("voice booking only after confirm", code == 200 and vb2.get("token", "").startswith("MND-"), str(vb2)[:160])
 
+# voice NLU: spoken text parsed into structured intent (en + ml)
+code, vn = call("POST", "/api/farmer/voice-book",
+                {"phone": "9003333445", "farmer_name": "NLU Farmer",
+                 "text": "I have 20 bags of paddy today 3 pm"})
+p = vn.get("parsed", {})
+check("voice NLU parses English speech (20 bags -> 1000 kg, 3 pm)",
+      code == 200 and p.get("crop") == "Paddy" and p.get("quantity_kg") == 1000.0
+      and p.get("time") == "15:00" and vn.get("stage") == "proposal", str(vn)[:200])
+
+code, vm = call("POST", "/api/farmer/voice-book",
+                {"phone": "9003333445", "farmer_name": "NLU Farmer",
+                 "text": "ഇന്ന് 3 മണിക്ക് 20 സഞ്ചി നെല്ല് കൊണ്ടുപോകണം"})
+pm = vm.get("parsed", {})
+check("voice NLU parses Malayalam speech and replies in Malayalam",
+      code == 200 and pm.get("crop") == "Paddy" and pm.get("quantity_kg") == 1000.0
+      and pm.get("time") == "15:00" and vm.get("lang") == "ml", str(vm)[:200])
+
+code, vc = call("POST", "/api/farmer/voice-book", {"phone": "9003333446", "text": "book me please"})
+check("voice NLU asks for crop when nothing understood",
+      code == 200 and vc.get("stage") == "clarify" and len(vc.get("message", "")) > 20, str(vc)[:160])
+
 code, pp = call("GET", "/api/farmer/passport?phone=9876543210")
 check("farmer procurement passport", code == 200 and pp.get("totals") is not None
       and pp.get("farmer", {}).get("mm_id", "").startswith("MM-"))
@@ -417,6 +439,23 @@ check("prevention warns farmers under congestion", code == 200 and ps.get("ok")
       and ps.get("farmers_warned", 0) >= 1, str(ps)[:160])
 code, ps3 = call("POST", "/api/staff/prevention-sweep", {}, token=jwt)
 check("prevention sweep does not double-warn", code == 200 and ps3.get("farmers_warned") == 0)
+
+# --- live mode: background heartbeat drives real, audited activity -----------
+code, lm401 = call("POST", "/api/staff/live-mode", {"on": True})
+check("live mode requires auth (401)", code in (401, 403), str(lm401)[:120])
+
+code, q_before = call("GET", "/api/staff/queue", token=jwt)
+before_count = q_before.get("queue_length", len(q_before.get("queue", [])))
+code, lm = call("POST", "/api/staff/live-mode", {"on": True, "tick_seconds": 1.5}, token=jwt)
+check("live mode starts (staff or admin)", code == 200 and lm.get("live") is True, str(lm)[:160])
+time.sleep(7)  # ~4 ticks across 3 mandis
+code, q_after = call("GET", "/api/staff/queue", token=jwt)
+after_count = q_after.get("queue_length", len(q_after.get("queue", [])))
+code, lmstat = call("GET", "/api/staff/live-mode", token=jwt)
+code, lmoff = call("POST", "/api/staff/live-mode", {"on": False}, token=jwt)
+check("live mode stops", code == 200 and lmoff.get("live") is False)
+check("live mode generated real activity", lmstat.get("events_processed", 0) >= 3
+      and after_count != before_count, f"events={lmstat.get('events_processed')} queue {before_count}->{after_count}")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

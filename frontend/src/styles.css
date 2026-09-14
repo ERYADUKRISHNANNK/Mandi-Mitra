@@ -20,6 +20,24 @@ header {
   background: var(--green); color: #fff; padding: 12px 16px; border-radius: 14px; margin-bottom: 14px;
 }
 .brand { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 1.05rem; }
+
+/* Live Mode pulse in the header */
+.live-dot {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.5px; color: #fff;
+  background: var(--red); border-radius: 999px; padding: 2px 8px;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(217, 48, 37, 0.5); }
+  50% { opacity: 0.75; box-shadow: 0 0 0 6px rgba(217, 48, 37, 0); }
+}
+
+/* Microphone active state */
+.mic-on {
+  background: var(--red) !important; color: #fff !important;
+  animation: live-pulse 1.2s ease-in-out infinite;
+}
+.live-on { background: var(--red) !important; color: #fff !important; }
 .tagline { opacity: 0.75; font-size: 0.8rem; margin-left: 6px; }
 nav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .nav-btn {

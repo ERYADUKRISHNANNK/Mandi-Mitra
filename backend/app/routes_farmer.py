@@ -770,42 +770,76 @@ def explain_payment(token: str | None = None, phone: str | None = None):
 class BookingIntentIn(BaseModel):
     phone: str
     farmer_name: str = ""
+    text: str | None = None        # the spoken sentence, any of the 4 languages
     crop: str | None = None
     quantity_kg: float | None = None
-    when: str | None = None      # "tomorrow morning" | "today evening" | "nearest"
+    when: str | None = None        # "tomorrow" | "today" | "nearest"
+    lang: str | None = None        # overrides script auto-detection
     lat: float | None = None
     lng: float | None = None
-    confirm: bool = False        # MUST be true on the second call to actually book
+    confirm: bool = False          # MUST be true on the second call to actually book
 
 
 @router.post("/voice-book")
 def voice_book(body: BookingIntentIn):
     """Voice-to-action booking with MANDATORY confirmation step.
-    First call returns the proposal; nothing is booked until confirm=true."""
+    The spoken sentence is parsed (crop, quantity in kg or bags, day, time —
+    English/Malayalam/Hindi/Tamil), matched against live centre data, and the
+    farmer hears back a plan in their own language. Nothing is booked until
+    confirm=true."""
     from .discovery import best_for_me
-    crop = body.crop or "Paddy"
-    qty = body.quantity_kg or 500
+    from . import voice_nlu
+
+    parsed = voice_nlu.parse(body.text) if body.text else {
+        "crop": None, "quantity_kg": None, "quantity_source": None,
+        "day": None, "time": None, "lang": None}
+    lang = body.lang or parsed["lang"] or "en"
+    crop = body.crop or parsed["crop"]
+    qty = body.quantity_kg or parsed["quantity_kg"] or 500.0
+    day = parsed["day"] or body.when or "today"
+    if day == "today" and parsed["time"]:
+        from datetime import datetime as _dt
+        if parsed["time"] <= _dt.now().strftime("%H:%M"):
+            day = "tomorrow"      # spoken time already passed -> book tomorrow
+    if day == "tomorrow":
+        from datetime import date, timedelta
+        slot_date = (date.today() + timedelta(days=1)).isoformat()
+    else:
+        slot_date = today_str()
+
+    heard = {"heard": body.text or "", "parsed": {
+        "crop": crop, "quantity_kg": qty,
+        "quantity_source": parsed["quantity_source"],
+        "day": day, "time": parsed["time"]}, "lang": lang}
+
+    if not body.confirm and not crop:
+        return {"stage": "clarify", "needs_confirmation": False,
+                "message": voice_nlu.say("no_crop", lang), **heard}
+
+    rec = best_for_me(body.lat, body.lng, crop or "Paddy", qty)["recommended"]
+    if not rec:
+        return {"stage": "unavailable", "needs_confirmation": False,
+                "message": voice_nlu.say("unavailable", lang), **heard}
+
+    # explicit hour from speech wins; otherwise pick by queue pressure
+    slot_time = parsed["time"] or ("12:30" if rec["queue_length"] < 20 else "16:00")
+
     if not body.confirm:
-        bfm = best_for_me(body.lat, body.lng, crop, qty)
-        rec = bfm["recommended"]
-        if not rec:
-            return {"stage": "unavailable", "message": "No open centres right now."}
-        slot = (rec["available_slots"] and rec["queue_length"] < 20) and "12:30" or "16:00"
         return {"stage": "proposal",
                 "proposal": {"mandi_id": rec["mandi_id"], "name": rec["name"],
-                             "crop": crop, "quantity_kg": qty, "slot_time": slot,
+                             "crop": crop or "Paddy", "quantity_kg": qty,
+                             "slot_date": slot_date, "slot_time": slot_time,
                              "total_journey_minutes": rec["total_journey_minutes"]},
-                "message": (f"{rec['name']} has a {slot} slot, about {rec['total_journey_minutes']} minutes "
-                            f"total. Shall I book it? Say yes to confirm."),
-                "needs_confirmation": True}
+                "message": voice_nlu.say("proposal", lang, name=rec["name"],
+                                         slot=slot_time,
+                                         when=voice_nlu.when_phrase(day, parsed["time"], lang),
+                                         crop=crop or "Paddy", qty=int(qty)),
+                "needs_confirmation": True, **heard}
     # Confirmed booking path (reuses /book logic via direct call)
-    rec = best_for_me(body.lat, body.lng, crop, qty)["recommended"]
-    if not rec:
-        raise HTTPException(status_code=409, detail="No open centres")
-    slot = "12:30" if rec["queue_length"] < 20 else "16:00"
     return book(BookIn(mandi_id=rec["mandi_id"], phone=body.phone,
                        farmer_name=body.farmer_name or f"Farmer {body.phone[-4:]}",
-                       crop=crop, quantity_kg=qty, slot_time=slot, lang="ml"))
+                       crop=crop or "Paddy", quantity_kg=qty,
+                       slot_date=slot_date, slot_time=slot_time, lang=lang))
 
 
 @router.post("/triage")
