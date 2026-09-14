@@ -439,6 +439,14 @@ def system_health_ep(user: dict = Depends(admin_auth)):
     return system_health()
 
 
+@admin_router.get("/network-brain")
+def network_brain_ep(user: dict = Depends(admin_auth)):
+    """National Mandi Brain: tomorrow's overload prediction, underutilized
+    centres, payment hotspots and the recommended action list."""
+    from .plan import network_brain
+    return network_brain()
+
+
 @admin_router.get("/national-heatmap")
 def national_heatmap_ep(user: dict = Depends(admin_auth)):
     """National view: congestion, volumes, payment delays, grievances per centre."""

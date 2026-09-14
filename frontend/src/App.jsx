@@ -7,6 +7,8 @@ import {
 } from './state.js'
 
 const CROPS = ['Paddy', 'Wheat', 'Maize']
+const SIMPLE_KEY = 'mm_simple'
+const isSimple = () => localStorage.getItem(SIMPLE_KEY) === '1'
 const LANGS = [['ml', 'മലയാളം'], ['en', 'English'], ['hi', 'हिंदी'], ['ta', 'தமிழ்']]
 const TTS_LANG = { ml: 'ml-IN', en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN' }
 
@@ -55,6 +57,11 @@ function FarmerView({ lang }) {
   const [explain, setExplain] = useState(null)
   const [voiceText, setVoiceText] = useState('')
   const [voiceProposal, setVoiceProposal] = useState(null)
+  const [copilotText, setCopilotText] = useState('')
+  const [copilotPlan, setCopilotPlan] = useState(null)
+  const [dep, setDep] = useState(null)
+  const [off, setOff] = useState(null)
+  const [simple, setSimple] = useState(isSimple())
   const [notifCount, setNotifCount] = useState(0)
   const [bfm, setBfm] = useState(null)
   const [assistOpen, setAssistOpen] = useState(false)
@@ -85,6 +92,57 @@ function FarmerView({ lang }) {
     setOffline(off)
     api.get(`/farmer/passport?phone=${tk.phone}`).then(setPassport).catch(() => {})
     api.get(`/farmer/explain-payment?token=${tk.token}`).then(setExplain).catch(() => {})
+    api.post('/farmer/copilot/departure', { token: tk.token }).then(setDep).catch(() => setDep(null))
+    api.post('/farmer/copilot/transfer', { token: tk.token }).then(setOff).catch(() => setOff(null))
+  }
+
+  const askCopilot = async (text) => {
+    if (!text.trim()) return
+    try {
+      const r = await api.post('/farmer/copilot/plan', {
+        text, lang, lat: 10.52, lng: 76.21, // demo location; PWA uses GPS in deployment
+      })
+      setCopilotPlan(r)
+      speak(r.reply || '', lang)
+    } catch { /* keep silent */ }
+  }
+
+  const micListen = () => {
+    try {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+      const rec = new SR()
+      rec.lang = TTS_LANG[lang] || 'ml-IN'
+      rec.onresult = (e) => {
+        const said = e.results[0][0].transcript
+        setCopilotText(said)
+        askCopilot(said)
+      }
+      rec.start()
+    } catch { /* unsupported browser */ }
+  }
+
+  const bookPlan = async () => {
+    if (!copilotPlan?.plan || phone.length !== 10) { setError('Enter your 10-digit mobile number first'); return }
+    try {
+      const b = await api.post('/farmer/book', {
+        mandi_id: copilotPlan.plan.mandi_id, phone, farmer_name: name || 'Farmer',
+        crop: copilotPlan.parse.crop || crop, quantity_kg: copilotPlan.parse.quantity_kg || Number(qty) || 500,
+        slot_time: copilotPlan.plan.arrival_at?.slice(11, 16) || '14:00', lang,
+      })
+      saveTicket(b.token, b.phone); setTicket({ token: b.token, phone: b.phone })
+      setCopilotPlan(null)
+      await loadStatus({ token: b.token, phone: b.phone })
+    } catch (e) { setError(e.message) }
+  }
+
+  const moveMe = async () => {
+    try {
+      const r = await api.post('/farmer/copilot/transfer', {
+        token: status.token, to_mandi_id: off.recommended.mandi_id, confirm: true,
+      })
+      saveTicket(r.new_token, status.phone); setTicket({ token: r.new_token, phone: status.phone })
+      setOff(null); await loadStatus({ token: r.new_token, phone: status.phone })
+    } catch (e) { setError(e.message) }
   }
 
   useEffect(() => { loadStatus() /* eslint-disable-line */ }, [ticket?.token])
@@ -191,6 +249,19 @@ function FarmerView({ lang }) {
           </div>
         )}
         {leaveNow && <div className="banner alert">🚗 {t.leaveNow} — {t.token} {status.token}</div>}
+        {dep?.advice && dep.advice !== 'come' && (
+          <div className={`banner ${dep.advice === 'wait' ? 'warn' : 'ok-banner'}`}>
+            {dep.advice === 'wait' ? '🟡 ' : '🟢 '}<b>{dep.message}</b>
+          </div>
+        )}
+        {off?.offer && (
+          <div className="banner warn">
+            ⚖ Your current wait is ~{off.current_wait_minutes}m — <b>{off.recommended.name}</b> could save you
+            ~{Math.round(off.recommended.wait_advantage_minutes)}m (+{off.recommended.distance_km} km).
+            <button className="mini" onClick={moveMe}>Move me there</button>
+            <button className="mini ghost" onClick={() => setOff({ ...off, offer: false })}>Stay here</button>
+          </div>
+        )}
         {turnSoon && <div className="banner alert">🔔 {t.turnSoon}</div>}
         <Card className="hero">
           <div className="token-row">
@@ -208,6 +279,21 @@ function FarmerView({ lang }) {
                     (status.eta_delta > 0 ? `⬇ ${status.eta_delta}m faster` : `⬆ ${Math.abs(status.eta_delta)}m slower`) : undefined} />
             <Stat label={t.confidence} value={status.eta_confidence ? `${Math.round(status.eta_confidence * 100)}%` : '—'} />
           </div>
+          <button className="ghost" style={{ marginBottom: 8 }}
+                  onClick={() => { const v = !simple; setSimple(v); localStorage.setItem(SIMPLE_KEY, v ? '1' : '0') }}>
+            {simple ? '📖 Detailed mode' : '🟢 Simple mode'}
+          </button>
+          {simple ? (
+            <div className="simple-grid">
+              <div className="simple-btn">📅 <span>MY TURN</span><b>{isServing ? 'NOW' : `#${pos} · ${eta === '—' ? '—' : eta + 'm'}`}</b></div>
+              {dep?.advised_departure_hhmm && status.status === 'SLOT_BOOKED' &&
+                <div className="simple-btn"><span>START AT</span><b>{dep.advised_departure_hhmm}</b></div>}
+              <div className="simple-btn">💰 <span>PAYMENT</span><b>{status.payment_status || '—'}</b></div>
+              <button className="simple-btn" onClick={() => speak(`Your token ${status.token}. Position ${pos}. Expected wait ${eta} minutes.`, lang)}>
+                🔊 <span>LISTEN</span><b>▶</b>
+              </button>
+            </div>
+          ) : (
           <div className="qr-row">
             <img src={`/api/farmer/qrcode/${status.token}`} alt="Gate QR" className="qr-img" />
             <div>
@@ -221,6 +307,7 @@ function FarmerView({ lang }) {
               )}
             </div>
           </div>
+          )}
           {status.amount ? (
             <div className="amount-box">
               <span>₹{status.amount.toLocaleString('en-IN')}</span>
@@ -301,6 +388,41 @@ function FarmerView({ lang }) {
     <div className="fade-in">
       <button className="ghost assist-fab" onClick={() => setAssistOpen(!assistOpen)}>🤖 Ask Mandi Mitra</button>
       <AssistantChat open={assistOpen} setOpen={setAssistOpen} chat={chat} chatQ={chatQ} setChatQ={setChatQ} ask={ask} />
+      <Card className="hero copilot">
+        <h3>🧠 {lang === 'ml' ? 'എവിടെയാണ് ഇന്ന് വേഗം?' : 'Where should I sell today?'}</h3>
+        <p className="muted">Just say it in your own words — the copilot does the rest.</p>
+        <div className="grid2">
+          <input value={copilotText} onChange={(e) => setCopilotText(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Enter' && askCopilot(copilotText)}
+                 placeholder={lang === 'ml' ? '“ഇന്ന് 10 സഞ്ചി നെല്ല് കൊണ്ടുപോകണം”' : '"I have 20 bags of paddy for today 3 pm"'} />
+          <div className="row-btns">
+            <button className="primary" style={{ marginTop: 0 }} onClick={() => askCopilot(copilotText)}>Get my plan</button>
+            <button className="ghost" onClick={micListen} title="Speak in your language">🎙</button>
+          </div>
+        </div>
+        {copilotPlan && (
+          <div className="advice">
+            <p className="advice-line"><b>🤖 {copilotPlan.reply}</b></p>
+            {copilotPlan.plan && (
+              <>
+                <div className="grid4">
+                  <Stat label="Leave home" value={copilotPlan.plan.leave_at_hhmm} tone="ok" />
+                  <Stat label="Queue ahead" value={copilotPlan.plan.queue_length} />
+                  <Stat label="Expected wait" value={`${Math.round(copilotPlan.plan.expected_wait_minutes)}m`} />
+                  {copilotPlan.plan.estimated_value && <Stat label="Est. value" value={`₹${copilotPlan.plan.estimated_value.toLocaleString('en-IN')}`} tone="ok" />}
+                </div>
+                <p className="muted" style={{ fontSize: '0.8rem' }}>📄 Carry: {copilotPlan.plan.documents}</p>
+                {copilotPlan.assumptions.length > 0 && <p className="muted" style={{ fontSize: '0.75rem' }}>Note: {copilotPlan.assumptions.join(', ')}</p>}
+                <div className="grid2">
+                  <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Mobile number to book" inputMode="numeric" />
+                  <button className="primary" onClick={bookPlan} disabled={phone.length !== 10}>✅ Book this plan</button>
+                </div>
+              </>
+            )}
+            <p className="muted" style={{ fontSize: '0.75rem' }}>Plan confidence {Math.round((copilotPlan.confidence || 0) * 100)}%</p>
+          </div>
+        )}
+      </Card>
       {bfm?.recommended && (
         <Card className="hero bfm">
           <h3>🏆 Best centre for you (AI)</h3>
@@ -912,6 +1034,7 @@ function AdminView({ lang }) {
   const [p, setP] = useState('')
   const [cc, setCc] = useState(null)
   const [impact, setImpact] = useState(null)
+  const [brain, setBrain] = useState(null)
   const [err, setErr] = useState('')
 
   useEffect(() => {
@@ -919,6 +1042,7 @@ function AdminView({ lang }) {
     const load = () => {
       api.get('/admin/command-centre', jwt).then(setCc).catch((e) => setErr(e.message))
       api.get('/impact').then(setImpact).catch(() => {})
+      api.get('/admin/network-brain', jwt).then(setBrain).catch(() => {})
     }
     load()
     const iv = setInterval(load, 10000)
@@ -964,6 +1088,23 @@ function AdminView({ lang }) {
             {impact && <Stat label="Farmer-hours saved today" value={`${impact.farmer_hours_saved_today}h`} tone="ok" />}
             {impact && <Stat label="Avg time at centre" value={`${impact.per_mandi?.[0]?.avg_time_in_mandi_min ?? '—'}m`} />}
           </div>
+          {brain && (
+            <Card>
+              <h3>🧠 National Mandi Brain <span className="muted">(tomorrow's problems, today's actions)</span></h3>
+              <div className="grid4">
+                <Stat label="Centres monitored" value={brain.summary.monitored} />
+                <Stat label="Overloaded tomorrow" value={brain.summary.overloaded_tomorrow} tone={brain.summary.overloaded_tomorrow ? 'bad' : 'ok'} />
+                <Stat label="Underutilized" value={brain.summary.underutilized} tone="warn" />
+                <Stat label="Payment hotspots" value={brain.summary.payment_hotspots} tone={brain.summary.payment_hotspots ? 'bad' : 'ok'} />
+              </div>
+              {brain.actions.length > 0 && (
+                <div className="advice">
+                  {brain.actions.map((a, i) => <p key={i} className="advice-line">→ {a}</p>)}
+                </div>
+              )}
+              <p className="muted" style={{ fontSize: '0.75rem' }}>{brain.note}</p>
+            </Card>
+          )}
           <MandiMap centres={cc.centres} />
           <Card>
             <h3>Centres</h3>

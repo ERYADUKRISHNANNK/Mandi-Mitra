@@ -589,6 +589,68 @@ def cancel(body: CancelIn):
     return {"ok": True, "token": body.token}
 
 
+class PlanIn(BaseModel):
+    text: str
+    lang: str = "ml"
+    lat: float | None = None
+    lng: float | None = None
+
+
+@router.post("/copilot/plan")
+def copilot_plan(body: PlanIn):
+    """The AI Procurement Copilot: farmer speaks naturally, the system returns
+    ONE procurement plan (where, when to leave, expected wait, value, docs)."""
+    from .plan import build_plan, parse_intent
+    p = parse_intent(body.text, body.lang)
+    result = build_plan(body.lat, body.lng, p["crop"], p["quantity_kg"], body.lang, p["hour"])
+    result["assumptions"] = (["bags counted as 50 kg each"]
+                              if "quantity_bags" in p["found"] else [])
+    result["parse"] = {**p}
+    return result
+
+
+class DepartureIn(BaseModel):
+    token: str
+    mandi_id: str | None = None
+
+
+@router.post("/copilot/departure")
+def copilot_departure(body: DepartureIn):
+    """"Don't come yet" / "Leave now" — live recomputed for a booked farmer."""
+    from .plan import departure_advice
+    t = _find_ticket(body.token, None)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    r = departure_advice(t["mandi_id"], body.token)
+    if r.get("error"):
+        raise HTTPException(status_code=409, detail=r["error"])
+    return r
+
+
+class TransferIn(BaseModel):
+    token: str
+    to_mandi_id: str
+    confirm: bool = False
+
+
+@router.post("/copilot/transfer")
+def copilot_transfer(body: TransferIn):
+    """Intelligent rebooking: first call = offer only; confirm=true executes."""
+    from .plan import transfer_booking, transfer_offer
+    t = _find_ticket(body.token, None)
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    if not body.confirm:
+        r = transfer_offer(t["mandi_id"], body.token)
+        if r.get("error"):
+            raise HTTPException(status_code=409, detail=r["error"])
+        return r
+    try:
+        return transfer_booking(body.token, body.to_mandi_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @router.get("/profile")
 def profile(phone: str):
     """Auto-fill: verified profile for one-tap booking (no repeated typing)."""

@@ -341,5 +341,42 @@ code, emr = call("POST", "/api/staff/emergency-mode",
                  {"active": False, "reason": "drill-off"}, token=jwt)
 check("emergency mode toggle", code == 200 and emr.get("ok"))
 
+# --- wave-6: AI Procurement Copilot, departure advisor, transfer, brain ------
+code, cp = call("POST", "/api/farmer/copilot/plan",
+                {"text": "I have 20 bags of paddy. Where can I take it today at 3 pm?",
+                 "lang": "en", "lat": 10.52, "lng": 76.21})
+check("copilot parses bags+crop+time -> plan", code == 200 and cp.get("ok")
+      and cp.get("parse", {}).get("quantity_kg") == 1000.0
+      and cp.get("parse", {}).get("crop") == "Paddy"
+      and cp.get("plan", {}).get("leave_at_hhmm"))
+
+code, cpm = call("POST", "/api/farmer/copilot/plan",
+                 {"text": "എനിക്ക് ഇന്ന് 3 മണിക്ക് 10 സഞ്ചി നെല്ല് കൊണ്ടുപോകണം", "lang": "ml"})
+check("copilot parses Malayalam request", code == 200 and cpm.get("ok")
+      and cpm.get("parse", {}).get("crop") == "Paddy"
+      and cpm.get("parse", {}).get("quantity_kg") == 500.0
+      and cpm.get("parse", {}).get("hour") == 15.0, str(cpm.get("parse"))[:200])
+
+code, dep = call("POST", "/api/farmer/copilot/departure", {"token": vb2.get("token", "MND-0000")})
+check("departure advisor (don't-come-yet)", code == 200 and dep.get("advice") in ("wait", "soon", "leave")
+      and dep.get("advised_departure_hhmm"), str(dep)[:200])
+
+code, off = call("POST", "/api/farmer/copilot/transfer",
+                 {"token": vb2.get("token", "MND-0000"), "to_mandi_id": "KL-THRIS-02"})
+check("transfer offer (decision intelligence)", code == 200 and "offer" in off
+      and isinstance(off.get("alternatives"), list), str(off)[:200])
+
+code, tb = call("POST", "/api/farmer/copilot/transfer",
+                {"token": vb2.get("token", "MND-0000"), "to_mandi_id": "KL-THRIS-02", "confirm": True})
+check("transfer booking executes (new token)", code == 200 and tb.get("ok")
+      and tb.get("new_token", "").startswith("MND-"))
+
+code, nb = call("GET", "/api/admin/network-brain", token=admin_jwt)
+check("national mandi brain", code == 200 and nb.get("summary", {}).get("monitored") == 3
+      and isinstance(nb.get("actions"), list))
+
+code, nb403 = call("GET", "/api/admin/network-brain", token=jwt)
+check("network brain admin-only", code in (401, 403))
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

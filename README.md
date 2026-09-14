@@ -2,6 +2,9 @@
 
 **Know the Mandi. Know your Turn. Know your Payment.**
 
+> **Farmers don't need to understand the technology. Mandi Mitra understands the farmer.**
+> The farmer speaks naturally in their own language; the AI copilot decides the best centre, the best time, and when to leave home — all the intelligence lives underneath, none of the jargon reaches the farmer.
+
 A working full-stack prototype for Smart India Hackathon (SIH26032), evolved from a queue-visibility system into a **national intelligent procurement platform**: farmers discover and compare nearby centres, get AI "Best Mandi For Me" recommendations, book through five access modes, receive predictive turn/departure alerts, and track procurement + payment end-to-end — while staff, district and national administrators get role-scoped operational intelligence. Offline-first, multilingual (en/ml/hi/ta), and grounded by a RAG knowledge layer with MCP-style controlled tools.
 
 ---
@@ -66,6 +69,11 @@ A working full-stack prototype for Smart India Hackathon (SIH26032), evolved fro
 | **Voice-to-action booking** | ✅ working | "Book tomorrow at the nearest mandi" → AI proposes, **explicit confirmation required** before anything is booked |
 | **AI grievance triage** | ✅ working | Classifies category + priority from text (HIGH routes to district officer) and files an MM-GRV case |
 | **Emergency Procurement Mode** | ✅ working | One click freezes bookings, marks the centre CLOSED, notifies affected farmers, points to alternatives |
+| **🧠 AI Procurement Copilot** | ✅ working | Farmer speaks naturally ("ഇന്ന് 10 സഞ്ചി നെല്ല് 3 മണിക്ക്") → ONE plan: best centre, leave-at time, expected wait, est. value, documents to carry, savings vs the worst option. Multilingual parser (en/ml/hi/ta), bags→kg, mic input |
+| **"Don't come yet" departure advisor** | ✅ working | Live-recomputed advice: wait / get-ready / leave-now with the exact start time — attacks blind waiting directly |
+| **Intelligent rebooking (transfer)** | ✅ working | When load shifts, the system offers a better centre with quantified savings; farmer confirms; transfer re-slots with priority |
+| **Simple Mode** | ✅ working | Farmer-simple big-button UI (MY TURN / START AT / PAYMENT / LISTEN) — zero jargon, all AI underneath |
+| **🇮🇳 National Mandi Brain** | ✅ working | Admin intelligence: tomorrow's overloaded centres, underutilized centres, payment hotspots + recommended action list |
 
 ## 🚀 Run it (2 terminals, ~1 minute)
 
@@ -95,7 +103,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **76 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score and emergency mode.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → **83 checks**, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion, hall board, ETA deltas, no-show risk, dual-layer anomalies, QR, escalation, discovery, best-mandi AI, feedback, grievances, RAG assistant, MCP authorization, why-engine, performance score, system health, auto-fill, reschedule, voice-to-action booking, passport, explain-payment, triage, digital twin, capacity plan, heatmap, quantity forecast, copilot briefing, daily report, model health, insider scan, trust score, emergency mode, multilingual copilot parsing (en+ml), departure advisor, transfer offer/booking and the national brain.
 
 ## 🎬 5-minute demo script
 
@@ -106,6 +114,8 @@ Or double-click **`start_all.bat`** (Windows).
 5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
 
 **Wave-5 demo beats (pick 1–2):** run the **Digital Twin** ("×2 arrivals, 2 counters → projected peak queue 14") before opening a counter; fire the **⚡ Congestion scenario** and watch the copilot briefing, SLA banner and heatmap turn red together; use **voice booking** ("book tomorrow at the nearest mandi" → AI proposal → explicit confirm); open **Daily report** for the auto-generated bottleneck recommendation.
+
+**Wave-6 demo beat (the opener):** on the farmer screen type or *speak*: `I have 20 bags of paddy for today 3 pm` → the **AI Procurement Copilot** replies with one plan (centre, leave-at time, wait, ₹ value, documents, savings) → one tap books it. Then show **Simple Mode** (big buttons, zero jargon) and finish on the admin **National Mandi Brain**. Closing line: **"Farmers don't need to understand the technology. Mandi Mitra understands the farmer."**
 
 ## 🧠 The four AI modules (all explainable)
 

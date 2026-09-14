@@ -143,6 +143,14 @@ input, select {
 .risk.high { background: #fde8e6; color: var(--red); }
 .risk.med { background: #fef7e0; color: #8a6d00; }
 .banner.ok-banner { background: #e6f4ea; color: #0d652d; border: 1px solid #bfe3cd; }
+.simple-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+.simple-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 10px;
+  border-radius: 14px; background: #f0f7f2; border: 2px solid #d6e8dc; font-size: 1.05rem; cursor: default; }
+button.simple-btn { cursor: pointer; }
+.simple-btn b { font-size: 1.35rem; }
+.simple-btn span { font-size: 0.8rem; color: #5a6b60; letter-spacing: 0.04em; }
+.copilot .advice { margin-top: 10px; }
+
 .chat-panel { position: fixed; right: 14px; bottom: 14px; width: 340px; max-width: 92vw; background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); z-index: 50; overflow: hidden; }
 .chat-head { background: var(--green); color: #fff; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
 .chat-body { max-height: 280px; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
