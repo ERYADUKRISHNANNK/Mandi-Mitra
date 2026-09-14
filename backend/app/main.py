@@ -120,9 +120,8 @@ def sms_webhook(body: SmsIn):
         )
         if ticket:
             return _sms_reply(body.phone, f"Already booked: {ticket['token']}. Send STATUS {ticket['token']}")
-        count = query_one("SELECT COUNT(*) AS n FROM tickets WHERE mandi_id = ? AND slot_date = ?",
-                          (mandi_id, today_str()))["n"]
-        token = f"MND-{1000 + count + 1}"
+        from .routes_farmer import next_token
+        token = next_token(mandi_id)
         execute(
             "INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg, slot_date, slot_time, lang, status, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?)",
@@ -183,6 +182,13 @@ def missed_call(body: MissedCallIn):
     log_event(t["mandi_id"], f"IVR:{body.phone}", "MISSED_CALL_STATUS", {"token": t["token"]}, t["id"])
     return {"callback_status": message, "token": t["token"], "position": pos,
             "eta_minutes": eta, "lang": lang, "channel": "IVR (simulated)"}
+
+
+@app.get("/api/board/{mandi_id}")
+def board_alias(mandi_id: str):
+    """Public hall-display board (alias of the farmer board endpoint)."""
+    from .routes_farmer import public_board
+    return public_board(mandi_id)
 
 
 # ------------------------------ metrics & misc ------------------------------ #

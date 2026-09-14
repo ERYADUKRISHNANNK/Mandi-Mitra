@@ -25,6 +25,15 @@ A working full-stack prototype built for Smart India Hackathon (SIH26032): farme
 | District command centre | ✅ working | Leaflet map, congestion status, receipt-chain health, district totals |
 | Offline-first PWA | ✅ working | Service worker caches last status; offline banner |
 | Demo autopilot | ✅ working | One click simulates arrivals & stage progression for judging |
+| **Smart diversion (load balancing)** | ✅ working | Congested mandi? Suggests a nearby centre with real distances, drive time & fuel cost — farmer decides |
+| GPS self check-in | ✅ working | Farmer checks in from the PWA geofence (2.5 km) — no desk queue |
+| Priority inclusion | ✅ working | Elderly / differently-abled / small-holder precedence at booking and walk-in |
+| Walk-in kiosk tokens | ✅ working | Staff issue instant tokens to unbooked farmers — they join the live queue |
+| Public hall board | ✅ working | "Now Serving / Next Up" display for centre halls, auto-refreshing |
+| Farmer disputes (evidence) | ✅ working | Immutable timestamped flags on weight/quality/payment with staff resolution logging |
+| SLA breach watch | ✅ working | Banner alert when any farmer waits beyond the service threshold |
+| What-if intelligence | ✅ working | Quantified impact of opening/closing a counter before deciding |
+| Governance CSV report | ✅ working | One-click daily per-farmer report incl. minutes-in-mandi |
 
 ## 🚀 Run it (2 terminals, ~1 minute)
 
@@ -54,7 +63,7 @@ Or double-click **`start_all.bat`** (Windows).
 
 **Logins:** staff `staff1 / staff123` · district admin `admin / admin123`
 
-**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → 25 checks, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards.
+**Verify everything:** `backend/.venv/Scripts/python backend/scripts/smoke_test.py` → 35 checks, covering booking→payment→receipt, SMS/missed-call/IVR, autopilot, command centre, auth guards, self check-in, walk-in, disputes, SLA, what-if, CSV, diversion and the hall board.
 
 ## 🎬 5-minute demo script
 
@@ -62,7 +71,7 @@ Or double-click **`start_all.bat`** (Windows).
 2. **Feature-phone parity (30 sec)** — `POST /api/sms {"phone":"…","message":"BOOK KL-KOCHI-01 WHEAT 700"}` and `POST /api/missed-call` → instant Malayalam IVR status. No app needed.
 3. **Staff dashboard (1.5 min)** — login staff1. Point at **AI recommendation**: "C2 idle while N farmers wait — allocate staff now". Run **autopilot**: watch the queue move stage-by-stage in real time, ETAs shrinking, timeline filling.
 4. **Transparency (1 min)** — complete a farmer's journey → receipt with **hash + chain verified ✅**; show admin **audit trail** per token.
-5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Close: **"Know your turn. Reach when it matters."**
+5. **Command centre (1 min)** — login admin: district map, congestion status, totals, receipt-chain health. Bonus beats: show the **hall board** on a second screen, raise a farmer **dispute** and resolve it from staff, and open the **what-if** card ("opening C2 cuts wait from 41m to 21m"). Close: **"Know your turn. Reach when it matters."**
 
 ## 🏗 Architecture
 

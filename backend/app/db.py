@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     position            INTEGER,
     eta_minutes         REAL,
     priority            INTEGER NOT NULL DEFAULT 0,
+    priority_flag       TEXT,
+    dispute_count       INTEGER NOT NULL DEFAULT 0,
     stage_started_at    TEXT,
     quality_grade       TEXT,
     amount              REAL,
@@ -177,4 +179,13 @@ def today_str() -> str:
 def init_db():
     conn = get_conn()
     conn.executescript(SCHEMA)
+    # Lightweight migrations for databases created before newer columns.
+    for stmt in (
+        "ALTER TABLE tickets ADD COLUMN priority_flag TEXT",
+        "ALTER TABLE tickets ADD COLUMN dispute_count INTEGER NOT NULL DEFAULT 0",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
     conn.commit()

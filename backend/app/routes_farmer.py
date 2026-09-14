@@ -42,6 +42,7 @@ class BookIn(BaseModel):
     slot_date: str | None = None
     slot_time: str
     lang: str = "ml"
+    priority_flag: str | None = None
 
 
 class IvrIn(BaseModel):
@@ -50,8 +51,53 @@ class IvrIn(BaseModel):
     lang: str = "ml"
 
 
+class SelfCheckInIn(BaseModel):
+    token: str
+    lat: float
+    lng: float
+
+
+class DisputeIn(BaseModel):
+    token: str
+    category: str = "GENERAL"  # WEIGHT | QUALITY | PAYMENT | GENERAL
+    note: str = ""
+
+
+class BookIn2(BaseModel):
+    """Extended booking fields for priority requests."""
+
+    priority_flag: str | None = None  # ELDERLY | DISABLED | SMALL_HOLDER
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    import math
+    p = math.pi / 180
+    a = (0.5 - math.cos((lat2 - lat1) * p) / 2
+         + math.cos(lat1 * p) * math.cos(lat2 * p) * (0.5 - math.cos((lng2 - lng1) * p) / 2))
+    return 12742 * math.asin(math.sqrt(a))
+
+
 def _mm_id(phone: str) -> str:
     return "MM-" + hashlib.sha256(phone.encode()).hexdigest()[:6].upper()
+
+
+def next_token(mandi_id: str) -> str:
+    """Collision-safe token minting (retry on the rare race)."""
+    import sqlite3 as _sq
+    for _ in range(5):
+        try:
+            max_id = query_one("SELECT COALESCE(MAX(id), 0) AS m FROM tickets")["m"]
+            candidate = f"MND-{1000 + max_id + 1}"
+            if not query_one("SELECT 1 FROM tickets WHERE token = ?", (candidate,)):
+                return candidate
+        except _sq.Error:
+            pass
+    return f"MND-{1000 + secrets_rand_int()}"
+
+
+def secrets_rand_int() -> int:
+    import secrets
+    return secrets.randbelow(90000) + 10000
 
 
 def _register_farmer(phone: str, name: str, lang: str) -> dict:
@@ -145,20 +191,17 @@ def book(body: BookIn):
 
     _register_farmer(body.phone, body.farmer_name, body.lang)
 
-    count = query_one(
-        "SELECT COUNT(*) AS n FROM tickets WHERE mandi_id = ? AND slot_date = ?",
-        (body.mandi_id, slot_date),
-    )["n"]
-    token = f"MND-{1000 + count + 1}"
+    token = next_token(body.mandi_id)
 
+    priority = 1 if body.priority_flag in ("ELDERLY", "DISABLED", "SMALL_HOLDER") else 0
     execute(
         """
         INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
-            slot_date, slot_time, lang, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?)
+            slot_date, slot_time, lang, status, priority, priority_flag, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?, ?, ?)
         """,
         (token, body.mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
-         slot_date, body.slot_time, body.lang, now_iso()),
+         slot_date, body.slot_time, body.lang, priority, body.priority_flag, now_iso()),
     )
     ticket = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
     log_event(body.mandi_id, f"FARMER:{body.phone}", "BOOKING_CREATED",
@@ -296,6 +339,78 @@ def ivr_call(body: IvrIn):
     send_voice(ticket["phone"], lang, template, ctx, ticket["id"])
     return {"ivr_says": spoken, "lang": lang, "status": status_key,
             "position": ctx["position"], "eta_minutes": ctx["eta"]}
+
+
+@router.post("/self-checkin")
+def self_checkin(body: SelfCheckInIn):
+    """GPS self check-in: farmer arrives on-site and checks in from the PWA
+    without queueing at a desk. Geofence-verified against the mandi location."""
+    from .config import settings
+    ticket = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    if ticket["status"] != "SLOT_BOOKED":
+        raise HTTPException(status_code=409, detail=f"Cannot check in from status {ticket['status']}")
+    mandi = query_one("SELECT * FROM mandis WHERE id = ?", (ticket["mandi_id"],))
+    distance = _haversine_km(body.lat, body.lng, mandi["lat"], mandi["lng"])
+    if distance > settings.self_checkin_radius_km:
+        raise HTTPException(status_code=422, detail=
+            f"You appear to be {distance:.1f} km away. Please check in at the centre.")
+    execute("UPDATE tickets SET status = 'ARRIVED', checked_in_at = ? WHERE id = ?",
+            (now_iso(), ticket["id"]))
+    log_event(ticket["mandi_id"], f"FARMER:{ticket['phone']}", "ARRIVAL_VERIFIED",
+              {"token": body.token, "method": "GPS_SELF_CHECKIN", "distance_km": round(distance, 2)},
+              ticket["id"])
+    snap = recompute_mandi(ticket["mandi_id"])
+    mine = next((q for q in snap["queue"] if q["ticket_id"] == ticket["id"]), None)
+    send_sms(ticket["phone"], ticket["lang"], "ARRIVAL_CONFIRMED",
+             {"token": body.token, "position": mine["position"] if mine else 0,
+              "eta": int(mine["eta_minutes"] or 0) if mine else 0}, ticket["id"])
+    return {"ok": True, "token": body.token, "method": "GPS_SELF_CHECKIN",
+            "position": mine["position"] if mine else 0,
+            "eta_minutes": int(mine["eta_minutes"] or 0) if mine else 0}
+
+
+@router.post("/dispute")
+def raise_dispute(body: DisputeIn):
+    """Farmer raises a dispute/evidence flag on their procurement.
+    Creates an immutable audit entry staff and admins must address."""
+    ticket = query_one("SELECT * FROM tickets WHERE token = ?", (body.token,))
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Unknown token")
+    execute("UPDATE tickets SET dispute_count = dispute_count + 1 WHERE id = ?", (ticket["id"],))
+    log_event(ticket["mandi_id"], f"FARMER:{ticket['phone']}", "DISPUTE_RAISED",
+              {"token": body.token, "category": body.category, "note": body.note[:300]},
+              ticket["id"])
+    return {"ok": True, "token": body.token, "message":
+            "Dispute recorded with timestamp. Use this record for review — it cannot be altered."}
+
+
+@router.get("/disputes/mine")
+def my_disputes(phone: str):
+    rows = query(
+        "SELECT ts, action, details FROM audit_events WHERE actor = ? AND action = 'DISPUTE_RAISED'"
+        " ORDER BY id DESC LIMIT 20",
+        (f"FARMER:{phone}",),
+    )
+    return {"count": len(rows), "disputes": [dict(r) for r in rows]}
+
+
+@router.get("/board/{mandi_id}")
+def public_board(mandi_id: str):
+ """Public now-serving board for hall displays. No auth, read-only, large-text friendly."""
+ snap = get_snapshot(mandi_id)
+ serving = [q for q in snap["queue"] if q["queue_group"] == "SERVING"]
+ next_up = [q for q in snap["queue"] if q["queue_group"] == "ARRIVED"][:5]
+ mandi = query_one("SELECT name FROM mandis WHERE id = ?", (mandi_id,))
+ return {
+  "mandi_id": mandi_id,
+  "mandi_name": mandi["name"] if mandi else mandi_id,
+  "now_serving": [{"token": q["token"], "counter": None, "stage": q["status"]} for q in serving],
+  "next_up": [{"token": q["token"], "position": q["position"], "eta_minutes": q["eta_minutes"]} for q in next_up],
+  "queue_length": sum(1 for q in snap["queue"] if q["queue_group"] != "SERVING"),
+  "updated_at": snap["updated_at"],
+ }
 
 
 @router.get("/mandis")

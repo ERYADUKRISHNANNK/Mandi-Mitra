@@ -29,6 +29,10 @@ class Settings:
     slow_stage_minutes = 25
     # Booking velocity alert threshold (bookings per hour per phone).
     booking_velocity_limit = 4
+    # A farmer waiting longer than this after arrival is an SLA breach.
+    sla_wait_minutes = 60
+    # GPS self check-in geofence radius around a mandi.
+    self_checkin_radius_km = 2.5
 
 
 settings = Settings()

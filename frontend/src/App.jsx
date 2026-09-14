@@ -38,6 +38,8 @@ function FarmerView({ lang }) {
   const [status, setStatus] = useState(null)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState('')
+  const [priority, setPriority] = useState('')
+  const [disputeMsg, setDisputeMsg] = useState('')
   const [notifCount, setNotifCount] = useState(0)
   const wsRef = useRef(null)
 
@@ -84,6 +86,7 @@ function FarmerView({ lang }) {
       const b = await api.post('/farmer/book', {
         mandi_id: mandiId, phone, farmer_name: name || 'Farmer',
         crop, quantity_kg: Number(qty), slot_time: chosen.slot_time, lang,
+        priority_flag: priority || null,
       })
       const tk = { token: b.token, phone: b.phone }
       saveTicket(tk.token, tk.phone)
@@ -92,6 +95,18 @@ function FarmerView({ lang }) {
     } catch (e) { setError(e.message) }
   }
 
+
+  const selfCheckIn = async () => {
+    setError('')
+    try {
+      const m = mandis.find((x) => x.id === status.mandi_id)
+      const r = await api.post('/farmer/self-checkin', {
+        token: status.token, lat: m?.lat ?? 9.9312, lng: m?.lng ?? 76.2673,
+      })
+      alert(`${lang === 'ml' ? 'ചെക്ക് ഇൻ ആയി' : 'Checked in!'} Position ${r.position}, ETA ${r.eta_minutes} min`)
+      await loadStatus()
+    } catch (e) { setError(e.message) }
+  }
 
   const notifications = async () => {
     if (!ticket) return
@@ -132,7 +147,13 @@ function FarmerView({ lang }) {
               {status.payment_status === 'DELAYED' && <span className="warn-text"> ⚠ delay detected</span>}
             </div>
           ) : null}
+          {status.status === 'SLOT_BOOKED' && (
+            <button className="primary big" onClick={selfCheckIn}>📍 {lang === 'ml' ? 'എത്തി — ചെക്ക് ഇൻ ചെയ്യുക' : "I've arrived — check in (GPS)"}</button>
+          )}
+          {disputeMsg && <p className="ok-text">{disputeMsg}</p>}
         </Card>
+
+        {['PAYMENT', 'COMPLETED'].includes(status.status) && <DisputeBox token={status.token} onDone={setDisputeMsg} />}
 
         <Card>
           <h3>🧭 {t.timeline}</h3>
@@ -196,6 +217,13 @@ function FarmerView({ lang }) {
               </button>
             ))}
           </div>
+          <label>♿ Priority request <span className="muted">(elderly / disabled / small holder get queue precedence)</span></label>
+          <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <option value="">— None —</option>
+            <option value="ELDERLY">Senior citizen (60+)</option>
+            <option value="DISABLED">Differently-abled</option>
+            <option value="SMALL_HOLDER">Small holder (&lt; 500 kg)</option>
+          </select>
           <button className="primary big" onClick={book} disabled={!chosen || phone.length !== 10}>{t.confirmBooking}</button>
           {error && <p className="error">{error}</p>}
         </Card>
@@ -250,6 +278,44 @@ function ReceiptBox({ token, t }) {
   )
 }
 
+function DisputeBox({ token, onDone }) {
+  const [category, setCategory] = useState('WEIGHT')
+  const [note, setNote] = useState('')
+  const [done, setDone] = useState(false)
+
+  const submit = async () => {
+    try {
+      await api.post('/farmer/dispute', { token, category, note })
+      setDone(true)
+      onDone?.('Dispute recorded — immutable timestamp logged for review.')
+    } catch { /* ignore */ }
+  }
+
+  if (done) return <Card><p className="ok-text">✅ Dispute recorded — immutable timestamp logged. Track it in the journey timeline.</p></Card>
+  return (
+    <Card>
+      <h3>⚖ Raise a concern (dispute)</h3>
+      <p className="muted">Weight · quality · payment — every flag is timestamped and cannot be altered.</p>
+      <div className="grid2">
+        <div>
+          <label>Category</label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="WEIGHT">Weight mismatch</option>
+            <option value="QUALITY">Quality grade dispute</option>
+            <option value="PAYMENT">Payment amount / delay</option>
+            <option value="GENERAL">General</option>
+          </select>
+        </div>
+        <div>
+          <label>Note</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Describe the issue" />
+        </div>
+      </div>
+      <button className="primary" onClick={submit}>Submit dispute flag</button>
+    </Card>
+  )
+}
+
 // ------------------------------ Staff view --------------------------------- //
 
 function StaffView({ lang, onLogout }) {
@@ -261,17 +327,24 @@ function StaffView({ lang, onLogout }) {
   const [queue, setQueue] = useState(null)
   const [bott, setBott] = useState(null)
   const [anom, setAnom] = useState(null)
+  const [sla, setSla] = useState(null)
+  const [whatif, setWhatif] = useState(null)
+  const [disputes, setDisputes] = useState(null)
+  const [walkin, setWalkin] = useState({ name: '', phone: '', crop: 'Paddy', qty: 500, priority: '' })
   const [err, setErr] = useState('')
 
   const load = async () => {
     try {
-      const [d, q, b, a] = await Promise.all([
+      const [d, q, b, a, s, w, dp] = await Promise.all([
         api.get('/staff/dashboard', jwt),
         api.get('/staff/queue', jwt),
         api.get('/staff/bottleneck', jwt),
         api.get('/staff/anomalies', jwt),
+        api.get('/staff/sla', jwt),
+        api.get('/staff/whatif', jwt),
+        api.get('/staff/disputes', jwt),
       ])
-      setDash(d); setQueue(q); setBott(b); setAnom(a); setErr('')
+      setDash(d); setQueue(q); setBott(b); setAnom(a); setSla(s); setWhatif(w); setDisputes(dp); setErr('')
     } catch (e) { setErr(e.message) }
   }
 
@@ -319,10 +392,18 @@ function StaffView({ lang, onLogout }) {
         <div>
           <button className="ghost" onClick={() => act('/staff/autopilot', { steps: 4 })}>▶ {t.autopilot}</button>
           <button className="ghost" onClick={() => act('/staff/ivr-broadcast', { lang })}>📣 IVR broadcast</button>
+          <button className="ghost" onClick={() => window.open('/api/staff/report/daily.csv', '_blank')}
+                  style={{ display: 'none' }} />
+          <a className="ghost" href="/api/staff/report/daily.csv" download>📄 Daily CSV</a>
           <button className="ghost" onClick={() => { sessionStorage.clear(); onLogout() }}>⎋</button>
         </div>
       </div>
       {err && <p className="error">{err}</p>}
+      {sla?.breaches?.length > 0 && (
+        <div className="banner alert">
+          ⏱ SLA breach: {sla.breaches.map((b) => `${b.token} (${b.waited_minutes}m)`).join(', ')} waiting over {sla.threshold_minutes} min — serve or call now.
+        </div>
+      )}
       {dash && (
         <div className="grid4">
           <Stat label={t.queue} value={dash.queue_length} tone="warn" />
@@ -369,6 +450,17 @@ function StaffView({ lang, onLogout }) {
               <h4>🤖 {t.bottleneck}</h4>
               {bott.recommendations.length === 0 && <p className="muted">All good — no action needed.</p>}
               {bott.recommendations.map((r, i) => <p key={i} className="advice-line">→ {r}</p>)}
+              {whatif && (
+                <div className="whatif">
+                  <h4>🧮 What-if (projected wait)</h4>
+                  <p className="advice-line">Now: <b>{whatif.current_wait_minutes}m</b> with {whatif.active_counters} counters</p>
+                  {whatif.scenarios.map((s) => (
+                    <p key={s.scenario} className="advice-line">
+                      {s.scenario}: <b>{s.projected_wait_minutes}m</b> ({s.delta_minutes > 0 ? '+' : ''}{s.delta_minutes}m)
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </Card>
@@ -383,6 +475,57 @@ function StaffView({ lang, onLogout }) {
           ))}
         </Card>
       </div>
+
+      <Card>
+        <h3>🚶 Walk-in / kiosk token</h3>
+        <div className="grid4">
+          <div><label>Name</label><input value={walkin.name} onChange={(e) => setWalkin({ ...walkin, name: e.target.value })} placeholder="Farmer name" /></div>
+          <div><label>Phone</label><input value={walkin.phone} onChange={(e) => setWalkin({ ...walkin, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="10 digits" /></div>
+          <div><label>Crop</label>
+            <select value={walkin.crop} onChange={(e) => setWalkin({ ...walkin, crop: e.target.value })}>
+              {CROPS.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div><label>Qty (kg)</label><input type="number" value={walkin.qty} onChange={(e) => setWalkin({ ...walkin, qty: e.target.value })} /></div>
+        </div>
+        <div className="grid2">
+          <div><label>Priority</label>
+            <select value={walkin.priority} onChange={(e) => setWalkin({ ...walkin, priority: e.target.value })}>
+              <option value="">— None —</option>
+              <option value="ELDERLY">Senior citizen</option>
+              <option value="DISABLED">Differently-abled</option>
+              <option value="SMALL_HOLDER">Small holder</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button className="primary" style={{ marginTop: 0 }}
+                    disabled={walkin.phone.length !== 10 || !walkin.name}
+                    onClick={async () => {
+                      try {
+                        const r = await api.post('/staff/walkin', {
+                          farmer_name: walkin.name, phone: walkin.phone, crop: walkin.crop,
+                          quantity_kg: Number(walkin.qty), priority_flag: walkin.priority || null,
+                        })
+                        alert(`Token ${r.token} issued — position ${r.position}, ETA ${r.eta_minutes ?? '—'} min`)
+                        setWalkin({ name: '', phone: '', crop: 'Paddy', qty: 500, priority: '' })
+                        await load()
+                      } catch (e) { setErr(e.message) }
+                    }}>Issue token</button>
+          </div>
+        </div>
+      </Card>
+
+      {disputes?.count > 0 && (
+        <Card>
+          <h3>⚖ Open disputes ({disputes.count})</h3>
+          {disputes.open_disputes.map((d, i) => (
+            <div key={i} className="anomaly sev-high">
+              <b>{d.token}</b> — {(() => { try { const j = JSON.parse(d.details); return `${j.category}: ${j.note}` } catch { return d.details } })()}
+              <div className="muted">raised {d.raised_at} · ticket status {d.status}</div>
+            </div>
+          ))}
+        </Card>
+      )}
 
       <Card>
         <h3>📋 {t.queue}</h3>
@@ -543,6 +686,51 @@ function MandiMap({ centres }) {
   )
 }
 
+// ------------------------------ Hall board --------------------------------- //
+
+function BoardView() {
+  const [data, setData] = useState(null)
+  const [mandiId, setMandiId] = useState('KL-KOCHI-01')
+
+  useEffect(() => {
+    const load = () => api.get(`/board/${mandiId}`).then(setData).catch(() => {})
+    load()
+    const iv = setInterval(load, 5000)
+    return () => clearInterval(iv)
+  }, [mandiId])
+
+  return (
+    <div className="fade-in">
+      <Card className="hero">
+        <div className="row-btns spread">
+          <h2>📺 Now Serving — {data?.mandi_name || ''}</h2>
+          <select value={mandiId} onChange={(e) => setMandiId(e.target.value)} style={{ maxWidth: 260 }}>
+            <option value="KL-KOCHI-01">Kochi Central</option>
+            <option value="KL-THRIS-02">Thrissur</option>
+            <option value="KL-PALAK-03">Palakkad</option>
+          </select>
+        </div>
+        <div className="grid2">
+          <div>
+            <h3>🔴 At counters</h3>
+            {(data?.now_serving || []).length === 0 && <p className="muted">—</p>}
+            {(data?.now_serving || []).map((s) => (
+              <div key={s.token} className="board-token serving">{s.token}<span className="muted"> {s.stage.replace('_', ' ')}</span></div>
+            ))}
+          </div>
+          <div>
+            <h3>⏭ Next up</h3>
+            {(data?.next_up || []).map((s) => (
+              <div key={s.token} className="board-token">{s.token}<span className="muted"> pos {s.position} · ~{s.eta_minutes}m</span></div>
+            ))}
+          </div>
+        </div>
+        <p className="muted center">{data?.queue_length ?? '—'} farmers in queue · auto-refreshes every 5s</p>
+      </Card>
+    </div>
+  )
+}
+
 // ------------------------------ Shell --------------------------------------- //
 
 export default function App() {
@@ -557,9 +745,9 @@ export default function App() {
           🌾 <b>{t.appName}</b> <span className="tagline">{t.tagline}</span>
         </div>
         <nav>
-          {['farmer', 'staff', 'admin'].map((v) => (
+          {['farmer', 'staff', 'admin', 'board'].map((v) => (
             <button key={v} className={`nav-btn ${view === v ? 'on' : ''}`} onClick={() => setView(v)}>
-              {v === 'farmer' ? '👨‍🌾 Farmer' : v === 'staff' ? '🖥 Staff' : '🗺 Admin'}
+              {v === 'farmer' ? '👨‍🌾 Farmer' : v === 'staff' ? '🖥 Staff' : v === 'admin' ? '🗺 Admin' : '📺 Board'}
             </button>
           ))}
           <select className="lang-sel" value={lang} onChange={(e) => { setL(e.target.value); setLang(e.target.value) }}>
@@ -571,6 +759,7 @@ export default function App() {
         {view === 'farmer' && <FarmerView key={'f' + lang} lang={lang} />}
         {view === 'staff' && <StaffView lang={lang} onLogout={() => setView('farmer')} />}
         {view === 'admin' && <AdminView lang={lang} />}
+        {view === 'board' && <BoardView />}
       </main>
       <footer>Mandi Mitra · SIH prototype · simulated SMS/IVR & payment gateways</footer>
     </div>

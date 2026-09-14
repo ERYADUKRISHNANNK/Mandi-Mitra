@@ -20,9 +20,17 @@ def call(method: str, path: str, body=None, token: str | None = None):
     data = json.dumps(body).encode() if body is not None else None
     try:
         with urllib.request.urlopen(req, data=data, timeout=30) as resp:
-            return resp.status, json.loads(resp.read().decode() or "{}")
+            raw = resp.read().decode() or ""
+            ctype = resp.headers.get("Content-Type", "")
+            if "json" not in ctype:
+                return resp.status, raw
+            return resp.status, json.loads(raw or "{}")
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode() or "{}")
+        raw = e.read().decode() or "{}"
+        try:
+            return e.code, json.loads(raw)
+        except json.JSONDecodeError:
+            return e.code, raw
 
 
 def check(name: str, cond: bool, extra=""):
@@ -130,6 +138,43 @@ check("impact metrics", code == 200 and "farmer_hours_saved_today" in imp)
 
 code, forbid = call("GET", "/api/admin/command-centre")
 check("admin auth required (401/403)", code in (401, 403))
+
+# --- wave-2 features ---------------------------------------------------------
+code, sc = call("POST", "/api/farmer/self-checkin",
+                {"token": token2 if "token2" in dir() else token, "lat": 9.9312, "lng": 76.2673})
+check("GPS self check-in", code in (200, 409))  # 409 if already past SLOT_BOOKED
+
+code, board = call("GET", "/api/board/KL-KOCHI-01")
+check("public hall board", code == 200 and "now_serving" in board)
+
+code, div = call("GET", "/api/staff/diversion", token=jwt)
+check("smart diversion advice", code == 200 and "alternatives" in div)
+
+code, wi = call("POST", "/api/staff/walkin",
+                {"farmer_name": "Walk In Farmer", "phone": "9000000001",
+                 "crop": "Maize", "quantity_kg": 350, "priority_flag": "ELDERLY"}, token=jwt)
+check("walk-in kiosk token (priority)", code == 200 and wi.get("token", "").startswith("MND-"))
+
+if code == 200:
+    code, disp = call("POST", "/api/farmer/dispute",
+                      {"token": wi["token"], "category": "WEIGHT", "note": "smoke dispute"})
+    check("farmer dispute flag", code == 200 and disp.get("ok"))
+
+    code, dl = call("GET", "/api/staff/disputes", token=jwt)
+    check("staff dispute panel", code == 200 and dl.get("count", 0) >= 1)
+
+    code, rs = call("POST", "/api/staff/disputes/resolve",
+                    {"token": wi["token"], "resolution": "verified, no issue"}, token=jwt)
+    check("dispute resolution logged", code == 200)
+
+code, sla = call("GET", "/api/staff/sla", token=jwt)
+check("SLA breach watch", code == 200 and "breaches" in sla)
+
+code, whatif = call("GET", "/api/staff/whatif", token=jwt)
+check("what-if counter scenarios", code == 200 and len(whatif.get("scenarios", [])) == 2)
+
+code, csv = call("GET", "/api/staff/report/daily.csv", token=jwt)
+check("daily governance CSV", code == 200 and str(csv).startswith("token,"))
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

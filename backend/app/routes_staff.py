@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from . import anomaly, congestion, receipts
+from .diversion import recommend_diversion
 from .audit import log_event
 from .db import execute, now_iso, query, query_one, today_str
 from .i18n import SUPPORTED_LANGS
@@ -440,6 +441,176 @@ def audit_token(token: str, user: dict = Depends(admin_auth)):
         raise HTTPException(status_code=404, detail="Unknown token")
     rows = query("SELECT ts, actor, action, details FROM audit_events WHERE ticket_id = ? ORDER BY id", (ticket["id"],))
     return {"token": token, "events": [dict(r) for r in rows]}
+
+
+# ------------------------------ ops intelligence -------------------------- #
+
+class WalkInIn(BaseModel):
+    mandi_id: str | None = None
+    farmer_name: str
+    phone: str
+    crop: str = "Paddy"
+    quantity_kg: float = 500
+    priority_flag: str | None = None
+    lang: str = "ml"
+
+
+class DisputeResolveIn(BaseModel):
+    token: str
+    resolution: str
+
+
+@router.post("/walkin")
+def walkin(body: WalkInIn, user: dict = Depends(staff_auth)):
+    """Kiosk/counter walk-in: issue a token to a farmer with no booking.
+    They join the live queue immediately (equivalent to ARRIVED)."""
+    from .audit import log_event
+    from .notify import send_sms
+    mandi_id = body.mandi_id or _require_mandi(user)
+    date = today_str()
+    from .routes_farmer import next_token
+    token = next_token(mandi_id)
+    priority = 1 if body.priority_flag in ("ELDERLY", "DISABLED", "SMALL_HOLDER") else 0
+    now = now_iso()
+    execute(
+        """
+        INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+            slot_date, slot_time, lang, status, priority, priority_flag, checked_in_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ARRIVED', ?, ?, ?, ?)
+        """,
+        (token, mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
+         date, now[11:16], body.lang if body.lang in SUPPORTED_LANGS else "ml",
+         priority, body.priority_flag, now, now),
+    )
+    t = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
+    log_event(mandi_id, f"STAFF:{user['username']}", "WALKIN_REGISTERED",
+              {"token": token, "priority_flag": body.priority_flag}, t["id"])
+    snap = recompute_mandi(mandi_id)
+    mine = next((q for q in snap["queue"] if q["ticket_id"] == t["id"]), None)
+    send_sms(body.phone, t["lang"], "ARRIVAL_CONFIRMED",
+             {"token": token, "position": mine["position"] if mine else 0,
+              "eta": int(mine["eta_minutes"] or 0) if mine else 0}, t["id"])
+    return {"ok": True, "token": token, "position": mine["position"] if mine else 0,
+            "eta_minutes": mine["eta_minutes"] if mine else None}
+
+
+@router.get("/sla")
+def sla_watch(user: dict = Depends(staff_auth)):
+    """Farmers waiting beyond the service-level threshold (configurable)."""
+    from .config import settings
+    mandi_id = _require_mandi(user)
+    rows = query(
+        f"""
+        SELECT token, farmer_name, status, checked_in_at,
+               (julianday('now') - julianday(checked_in_at)) * 1440 AS waited_min
+        FROM tickets
+        WHERE mandi_id = ? AND slot_date = ? AND status IN ('SLOT_BOOKED','ARRIVED')
+          AND (julianday('now') - julianday(COALESCE(checked_in_at, created_at))) * 1440 > {int(settings.sla_wait_minutes)}
+        ORDER BY waited_min DESC
+        """,
+        (mandi_id, today_str()),
+    )
+    return {"mandi_id": mandi_id, "threshold_minutes": settings.sla_wait_minutes,
+            "breaches": [{"token": r["token"], "farmer": r["farmer_name"], "status": r["status"],
+                          "waited_minutes": int(r["waited_min"])} for r in rows]}
+
+
+@router.get("/disputes")
+def disputes(user: dict = Depends(staff_auth)):
+    """Open farmer disputes with full evidence trail references."""
+    mandi_id = _require_mandi(user)
+    rows = query(
+        """
+        SELECT t.token AS token, a.ts AS raised_at, a.details AS details, t.status AS status,
+               t.dispute_count AS dispute_count
+        FROM audit_events a JOIN tickets t ON a.ticket_id = t.id
+        WHERE a.action = 'DISPUTE_RAISED' AND a.mandi_id = ?
+        ORDER BY a.id DESC LIMIT 50
+        """,
+        (mandi_id,),
+    )
+    out = []
+    seen = set()
+    for r in rows:
+        if r["token"] in seen:
+            continue
+        seen.add(r["token"])
+        out.append(dict(r))
+    return {"mandi_id": mandi_id, "open_disputes": out, "count": len(out)}
+
+
+@router.post("/disputes/resolve")
+def resolve_dispute(body: DisputeResolveIn, user: dict = Depends(staff_auth)):
+    from .audit import log_event
+    mandi_id = _require_mandi(user)
+    ticket = _get_ticket(mandi_id, body.token)
+    log_event(mandi_id, f"STAFF:{user['username']}", "DISPUTE_RESOLVED",
+              {"token": body.token, "resolution": body.resolution[:300]}, ticket["id"])
+    return {"ok": True, "token": body.token}
+
+
+@router.get("/whatif")
+def whatif(user: dict = Depends(staff_auth)):
+    """Quantified what-if intelligence: impact of opening/closing counters."""
+    mandi_id = _require_mandi(user)
+    snap = get_snapshot(mandi_id)
+    waiting = sum(1 for q in snap["queue"] if q["queue_group"] != "SERVING")
+    counters = query("SELECT * FROM counters WHERE mandi_id = ? AND is_active = 1", (mandi_id,))
+    n = len(counters) or 1
+    proc = snap["avg_process_minutes"] or 6.0
+    now_wait = waiting * proc / n
+    scenarios = []
+    for delta, label in ((1, "open +1 counter"), (-1, "close 1 counter")):
+        nn = max(1, n + delta)
+        new_wait = waiting * proc / nn
+        scenarios.append({
+            "scenario": label,
+            "active_counters": nn,
+            "projected_wait_minutes": round(new_wait, 1),
+            "delta_minutes": round(new_wait - now_wait, 1),
+        })
+    return {"mandi_id": mandi_id, "current_wait_minutes": round(now_wait, 1),
+            "queue_length": waiting, "active_counters": n, "scenarios": scenarios}
+
+
+@router.get("/report/daily.csv")
+def daily_csv(user: dict = Depends(staff_auth)):
+    """Governance-ready CSV: per-stage durations for today's procurements."""
+    from fastapi import Response
+    mandi_id = _require_mandi(user)
+    rows = query(
+        """
+        SELECT token, farmer_name, crop, quantity_kg, status, quality_grade, amount,
+               payment_status, created_at, checked_in_at, stage_started_at, completed_at,
+               CASE WHEN checked_in_at IS NOT NULL AND completed_at IS NOT NULL
+                    THEN ROUND((julianday(completed_at) - julianday(checked_in_at)) * 1440, 1)
+                    ELSE NULL END AS minutes_in_mandi
+        FROM tickets WHERE mandi_id = ? AND slot_date = ? ORDER BY id
+        """,
+        (mandi_id, today_str()),
+    )
+    cols = ["token", "farmer_name", "crop", "quantity_kg", "status", "quality_grade", "amount",
+            "payment_status", "created_at", "checked_in_at", "stage_started_at", "completed_at",
+            "minutes_in_mandi"]
+    lines = [",".join(cols)]
+    for r in rows:
+        vals = []
+        for c in cols:
+            v = r[c]
+            text = "" if v is None else str(v)
+            vals.append(f'"{text}"' if ("," in text or '"' in text) else text)
+        lines.append(",".join(vals))
+    return Response(
+        content="\n".join(lines),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=mandi-{mandi_id}-daily.csv"},
+    )
+
+
+@router.get("/diversion")
+def diversion(user: dict = Depends(staff_auth)):
+    """Cross-mandi load-balancing advice for this centre."""
+    return recommend_diversion(_require_mandi(user))
 
 
 # --------------------------- demo autopilot ------------------------------- #
