@@ -292,6 +292,12 @@ function FarmerView({ lang }) {
               <button className="simple-btn" onClick={() => speak(`Your token ${status.token}. Position ${pos}. Expected wait ${eta} minutes.`, lang)}>
                 🔊 <span>LISTEN</span><b>▶</b>
               </button>
+              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask('Which centre is fastest for me right now?') }}>
+                📍 <span>WHERE TO GO?</span><b>⭐</b>
+              </button>
+              <button className="simple-btn" onClick={() => { setAssistOpen(true); ask('What documents do I need and how does procurement work?') }}>
+                ❓ <span>HELP</span><b>?</b>
+              </button>
             </div>
           ) : (
           <div className="qr-row">
