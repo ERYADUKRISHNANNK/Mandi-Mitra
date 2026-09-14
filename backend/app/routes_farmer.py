@@ -1,6 +1,7 @@
 """Farmer-facing endpoints: registration, booking, live status, receipts, IVR."""
 
 import hashlib
+import sqlite3
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -199,16 +200,24 @@ def book(body: BookIn):
     token = next_token(body.mandi_id)
 
     priority = 1 if body.priority_flag in ("ELDERLY", "DISABLED", "SMALL_HOLDER") else 0
-    execute(
-        """
-        INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
-            slot_date, slot_time, lang, status, priority, priority_flag, vehicle_type, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?, ?, ?, ?)
-        """,
-        (token, body.mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
-         slot_date, body.slot_time, body.lang, priority, body.priority_flag, body.vehicle_type,
-         now_iso()),
-    )
+    # Token races under double-clicks: retry with a fresh token on collision.
+    for attempt in range(4):
+        try:
+            execute(
+                """
+                INSERT INTO tickets (token, mandi_id, phone, farmer_name, crop, quantity_kg,
+                    slot_date, slot_time, lang, status, priority, priority_flag, vehicle_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SLOT_BOOKED', ?, ?, ?, ?)
+                """,
+                (token, body.mandi_id, body.phone, body.farmer_name, body.crop, body.quantity_kg,
+                 slot_date, body.slot_time, body.lang, priority, body.priority_flag, body.vehicle_type,
+                 now_iso()),
+            )
+            break
+        except sqlite3.IntegrityError:
+            if attempt == 3:
+                raise HTTPException(status_code=409, detail="Booking collision — please try again")
+            token = next_token(body.mandi_id)
     ticket = query_one("SELECT * FROM tickets WHERE token = ?", (token,))
     log_event(body.mandi_id, f"FARMER:{body.phone}", "BOOKING_CREATED",
               {"token": token, "slot": f"{slot_date} {body.slot_time}", "crop": body.crop,

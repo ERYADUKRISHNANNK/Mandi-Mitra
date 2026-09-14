@@ -686,7 +686,7 @@ def sla_watch(user: dict = Depends(staff_auth)):
     rows = query(
         f"""
         SELECT token, farmer_name, status, checked_in_at,
-               (julianday('now', 'localtime') - julianday(checked_in_at)) * 1440 AS waited_min
+               (julianday('now', 'localtime') - julianday(COALESCE(checked_in_at, created_at))) * 1440 AS waited_min
         FROM tickets
         WHERE mandi_id = ? AND slot_date = ? AND status IN ('SLOT_BOOKED','ARRIVED')
           AND (julianday('now', 'localtime') - julianday(COALESCE(checked_in_at, created_at))) * 1440 > {int(settings.sla_wait_minutes)}
@@ -696,7 +696,7 @@ def sla_watch(user: dict = Depends(staff_auth)):
     )
     return {"mandi_id": mandi_id, "threshold_minutes": settings.sla_wait_minutes,
             "breaches": [{"token": r["token"], "farmer": r["farmer_name"], "status": r["status"],
-                          "waited_minutes": int(r["waited_min"])} for r in rows]}
+                          "waited_minutes": int(r["waited_min"] or 0)} for r in rows]}
 
 
 @router.get("/disputes")

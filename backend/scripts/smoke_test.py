@@ -185,6 +185,20 @@ if code == 200:
 code, sla = call("GET", "/api/staff/sla", token=jwt)
 check("SLA breach watch", code == 200 and "breaches" in sla)
 
+# Regression: a never-checked-in booking older than the SLA must not 500.
+from datetime import datetime as _dt, timedelta as _td
+import sqlite3 as _sq
+code, qs = call("GET", "/api/staff/queue", token=jwt)
+old_target = next((q["token"] for q in qs.get("queue", []) if q["status"] == "SLOT_BOOKED"), None)
+if old_target:
+    _db = _sq.connect("mandi_mitra.db")
+    _old = (_dt.now() - _td(minutes=90)).isoformat(timespec="seconds")
+    _db.execute("UPDATE tickets SET created_at = ? WHERE token = ? AND status = 'SLOT_BOOKED'", (_old, old_target))
+    _db.commit(); _db.close()
+    code, sla_old = call("GET", "/api/staff/sla", token=jwt)
+    check("SLA handles un-checked-in old booking", code == 200 and
+          any(b["token"] == old_target for b in sla_old.get("breaches", [])), str(sla_old)[:140])
+
 code, whatif = call("GET", "/api/staff/whatif", token=jwt)
 check("what-if counter scenarios", code == 200 and len(whatif.get("scenarios", [])) == 2)
 
